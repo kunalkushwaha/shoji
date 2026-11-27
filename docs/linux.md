@@ -315,8 +315,9 @@ frames must be `a=f` row updates.
   `location.href` itself when it runs inside a frame (more_test checks it).
 - **Where it runs (2026-11-27):** WPE WebKit 2.54 with the 2.0 API is packaged by Debian
   testing/sid and Arch only. Ubuntu 26.04 and Fedora 45 don't package WPE at all,
-  Debian 13 has 2.48. The tarball's binary also needs glibc 2.43 (Debian testing), so
-  elsewhere use the Docker image.
+  Debian 13 has 2.48. The tarball's binary also needs glibc 2.43 (Debian testing).
+  **Decision: on Linux, shoji is supported through the Docker image.** The tarball is
+  a convenience for Debian testing / Arch.
 - **WebKit's sandbox on a host:** Ubuntu 24.04+ blocks unprivileged user namespaces
   (`kernel.apparmor_restrict_unprivileged_userns = 1`): on this Ubuntu 24.04 machine both
   `bwrap --unshare-user` and `unshare -Ur` are refused, so WebKit's bubblewrap sandbox
@@ -326,10 +327,8 @@ frames must be `a=f` row updates.
 
 ### Not done yet
 
-- WebKit's sandbox on a Debian testing or Arch host (no Ubuntu-style restriction there,
-  so it should start as is; not yet run outside Docker), and an AppArmor profile for
-  Ubuntu hosts.
-- `arm64` image (this machine has no arm64 emulation registered for Docker).
+- `arm64` image (this machine has no arm64 emulation registered for Docker; options: an
+  arm64 Linux VM under Koala on an Apple Silicon Mac, or GitHub's arm64 runners).
 
 ## Test plan
 
