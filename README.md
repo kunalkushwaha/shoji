@@ -28,11 +28,13 @@ local file is blocked by WebKit itself, so local reports and prototypes can't ph
 
 A `WKWebView` lives in an off-screen window (kept live with WebKit's occlusion check
 turned off), is snapshotted when it changes, and each frame is handed to the terminal
-as raw pixels through a temp file — no image data goes through the terminal stream.
+as raw pixels through a temp file — no image data goes through the terminal stream. The
+image is created once; after that only the rows that changed are written into it in place,
+inside a synchronized update, so nothing flickers and typing or hovering sends little.
 Mouse reports (SGR with pixel coordinates) and keys become `NSEvent`s for the page.
 Measurements behind each choice: [docs/research.md](docs/research.md).
 
 ## Status
 
-Early prototype. Not yet: right-click menus, tabs, downloads, dirty-region updates,
-use inside Neovim/tmux (unicode placeholders), Linux (WPE WebKit).
+Early prototype. Not yet: right-click menus, tabs, downloads, WebGL/video capture,
+agent control, use inside Neovim/tmux (unicode placeholders), Linux (WPE WebKit).

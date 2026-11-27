@@ -3,9 +3,16 @@ import AppKit
 import WebKit
 
 /// Borderless windows can't take keyboard focus unless they say so.
+/// It also always reports itself visible, key and on a screen: WebKit decides
+/// whether to run animation frames and show focus from these (an off-screen
+/// window has no screen, and on some macOS versions the display link then never
+/// fires). Same approach as Bun.WebView and warpweb.
 final class PageWindow: NSWindow {
   override var canBecomeKey: Bool { true }
   override var canBecomeMain: Bool { true }
+  override var isVisible: Bool { true }
+  override var isKeyWindow: Bool { true }
+  override var screen: NSScreen? { NSScreen.main }
 }
 
 /// Debug log, only when WKTERM_LOG=<file> is set.
@@ -76,10 +83,20 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
   /// the window sits off-screen. Private API; without it pages still load and
   /// draw, but animations stall.
   static func keepAliveOffScreen(_ web: WKWebView) {
-    let sel = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
-    guard let m = class_getInstanceMethod(WKWebView.self, sel) else { return }
+    setPrivateBool(web, "_setWindowOcclusionDetectionEnabled:", false)
+    // and don't let WebKit suppress the "hidden" page's process
+    setPrivateBool(web.configuration.preferences, "_setPageVisibilityBasedProcessSuppressionEnabled:", false)
+  }
+
+  /// Call a private `-(void)set…:(BOOL)` if this WebKit has it.
+  static func setPrivateBool(_ obj: NSObject, _ selector: String, _ value: Bool) {
+    let sel = NSSelectorFromString(selector)
+    guard obj.responds(to: sel), let m = class_getInstanceMethod(type(of: obj), sel) else {
+      log("private API missing: \(selector)")
+      return
+    }
     typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
-    unsafeBitCast(method_getImplementation(m), to: Setter.self)(web, sel, false)
+    unsafeBitCast(method_getImplementation(m), to: Setter.self)(obj, sel, value)
   }
 
   /// The page area (all rows but the top bar) in points.
@@ -111,6 +128,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
     window.setContentSize(size)
     web.frame = NSRect(origin: .zero, size: size)
     term.write("\u{1b}[2J")
+    term.resetFrame()
     lastFrame = []
     drawBar()
     wake()
@@ -146,11 +164,29 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
                                 space: CGColorSpaceCreateDeviceRGB(),
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
       ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-      if px == self.lastFrame { return }            // nothing changed: send nothing
+      let changed = Browser.changedRows(old: self.lastFrame, new: px, width: w, height: h)
+      if changed.isEmpty { return }                  // nothing changed: send nothing
       self.lastFrame = px
-      px.withUnsafeBytes { self.term.showFrame(rgba: $0, width: w, height: h) }
-      log("frame \(w)x\(h)")
+      let full = px.withUnsafeBytes { self.term.showFrame(rgba: $0, width: w, height: h, changedRows: changed) }
+      log(full ? "frame \(w)x\(h) full" : "frame rows \(changed.lowerBound)..<\(changed.upperBound) of \(h)")
       self.wake(for: 0.3)                            // still changing (animation?): keep up
+    }
+  }
+
+  /// The band of rows that differs between two frames (all rows if sizes differ).
+  static func changedRows(old: [UInt8], new: [UInt8], width: Int, height: Int) -> Range<Int> {
+    let stride = width * 4
+    guard old.count == new.count else { return 0..<height }
+    return old.withUnsafeBytes { a in
+      new.withUnsafeBytes { b in
+        func same(_ r: Int) -> Bool { memcmp(a.baseAddress! + r * stride, b.baseAddress! + r * stride, stride) == 0 }
+        var top = 0
+        while top < height && same(top) { top += 1 }
+        if top == height { return 0..<0 }
+        var bottom = height - 1
+        while bottom > top && same(bottom) { bottom -= 1 }
+        return top..<(bottom + 1)
+      }
     }
   }
 

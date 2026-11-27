@@ -37,7 +37,21 @@ struct InputParser {
         flushText()
         // lone ESC at the end of a read = the Escape key
         if i + 1 >= pending.count { out.append(.key(.escape)); i += 1; continue }
-        if pending[i + 1] == UInt8(ascii: "[") {
+        let kind = pending[i + 1]
+        if kind == UInt8(ascii: "_") || kind == UInt8(ascii: "P") || kind == UInt8(ascii: "]") {
+          // a terminal reply (kitty graphics, DCS, OSC): skip to its terminator
+          var j = i + 2
+          var end: Int? = nil
+          while j < pending.count {
+            if pending[j] == 0x07 { end = j + 1; break }                                   // BEL (OSC)
+            if pending[j] == 0x1b, j + 1 < pending.count, pending[j + 1] == UInt8(ascii: "\\") { end = j + 2; break }
+            j += 1
+          }
+          guard let e = end else { break }   // incomplete: wait for the rest
+          i = e
+          continue
+        }
+        if kind == UInt8(ascii: "[") {
           guard let (ev, len) = parseCSI(Array(pending[(i + 2)...])) else { break }   // incomplete: wait
           if let ev = ev { out.append(ev) }
           i += 2 + len

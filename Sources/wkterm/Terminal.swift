@@ -9,6 +9,7 @@ final class Terminal {
   var cellWidth: Double { cols > 0 ? Double(pixelWidth) / Double(cols) : 8 }
   var cellHeight: Double { rows > 0 ? Double(pixelHeight) / Double(rows) : 16 }
   private var frameSeq = 0
+  private var placed: (w: Int, h: Int, cols: Int, rows: Int)?   // the image on screen
   let pid = ProcessInfo.processInfo.processIdentifier
 
   init?() {
@@ -53,16 +54,39 @@ final class Terminal {
     tcsetattr(fd, TCSANOW, &saved)
   }
 
-  /// Show one frame of RGBA pixels below the top bar, replacing the previous one.
-  /// Sent as a temp file the terminal reads and deletes (t=t): no pixels go through
-  /// the terminal stream. The image is fitted to the page area's cells (c=, r=).
-  func showFrame(rgba: UnsafeRawBufferPointer, width: Int, height: Int) {
+  /// Show a frame of RGBA pixels below the top bar. The first frame (or one of a
+  /// new size) creates image 1 and places it, fitted to the page area's cells; after
+  /// that only the changed rows are written into it in place (a=f,r=1,X=1), so the
+  /// placement never goes away and nothing flickers. Re-sending an image id would
+  /// delete its placement first (kitty spec, and Ghostty's storage code).
+  /// Pixels travel as a temp file the terminal reads and deletes (t=t), not through
+  /// the terminal stream; each update is one synchronized output (?2026).
+  /// Returns true if it was a full frame.
+  @discardableResult
+  func showFrame(rgba: UnsafeRawBufferPointer, width: Int, height: Int, changedRows: Range<Int>) -> Bool {
+    let full = placed == nil || placed!.w != width || placed!.h != height
+      || placed!.cols != cols || placed!.rows != rows - 1
+    let rowsToSend = full ? 0..<height : changedRows
+    let stride = width * 4
+    let slice = UnsafeRawBufferPointer(rebasing: rgba[(rowsToSend.lowerBound * stride)..<(rowsToSend.upperBound * stride)])
     frameSeq += 1
-    let path = "/tmp/tty-graphics-protocol-wkterm-\(pid)-\(frameSeq % 4).rgba"
-    guard FileManager.default.createFile(atPath: path, contents: Data(rgba)) else { return }
-    let b64 = Data(path.utf8).base64EncodedString()
-    write("\u{1b}[2;1H\u{1b}_Ga=T,i=1,p=1,q=2,t=t,f=32,s=\(width),v=\(height),c=\(cols),r=\(rows - 1),C=1;\(b64)\u{1b}\\")
+    let path = "/tmp/tty-graphics-protocol-wkterm-\(pid)-\(frameSeq % 8).rgba"
+    guard FileManager.default.createFile(atPath: path, contents: Data(slice)) else { return full }
+    let file = Data(path.utf8).base64EncodedString()
+    var out = "\u{1b}[?2026h"
+    if full {
+      if placed != nil { out += "\u{1b}_Ga=d,d=I,i=1,q=2\u{1b}\\" }
+      out += "\u{1b}[2;1H\u{1b}_Ga=T,i=1,p=1,q=2,t=t,f=32,s=\(width),v=\(height),c=\(cols),r=\(rows - 1),C=1;\(file)\u{1b}\\"
+      placed = (width, height, cols, rows - 1)
+    } else {
+      out += "\u{1b}_Ga=f,i=1,r=1,X=1,q=2,t=t,f=32,x=0,y=\(rowsToSend.lowerBound),s=\(width),v=\(rowsToSend.count);\(file)\u{1b}\\"
+    }
+    write(out + "\u{1b}[?2026l")
+    return full
   }
+
+  /// Forget the image (after a resize the next frame recreates it).
+  func resetFrame() { placed = nil }
 
   /// The top bar: ◀ ▶ ⟳, then the title/address (or the address being typed).
   func bar(_ text: String, editing: Bool, loading: Bool, offline: Bool) {
