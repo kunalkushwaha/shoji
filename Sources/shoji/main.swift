@@ -46,12 +46,13 @@ if flag("--help") || flag("-h") {
 
     shoji <url | file> [--offline]              browse in this terminal
     shoji ctl <command> [args]                  drive a headless browser (for agents)
-    shoji --headless [url] [--offline]          the headless browser itself
+    shoji --headless [url] [--offline] [--sound]  the headless browser itself (muted unless --sound)
     shoji --embed --image-id ID [url]           inside Neovim (JSON lines on stdin/stdout)
 
   ctl commands: open, snapshot, click, fill, select, check, uncheck, type, key, scroll,
                 text, html, eval, screenshot [--full], console, errors, network, dialog,
-                wait, status, back, forward, reload, quit     (shoji ctl with no command: usage)
+                wait, status, back, forward, reload, sound on|off, quit   (shoji ctl alone: usage)
+                key <name|char> [--down|--up]: hold keys down (games)
   options:      --offline  block every non-local request · --name N  separate browsers
                 --json     raw replies (ctl)
 
@@ -128,6 +129,7 @@ if flag("--headless") {
   let display = HeadlessDisplay(width: Int((size.first ?? 1280) * scale), height: Int((size.last ?? 800) * scale))
   compileOfflineRules { rules in
     let b = Browser(display: display, offline: offline, rules: rules)
+    b.muted = !flag("--sound")            // nobody is listening to a headless browser
     let c = Controller(browser: b)
     c.headless = display
     keep += [b, c]

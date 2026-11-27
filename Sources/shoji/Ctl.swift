@@ -8,7 +8,9 @@
 //   shoji ctl fill <target> <text>      set a text field's value (input/change events fire)
 //   shoji ctl select <target> <option>  pick an option of a <select>
 //   shoji ctl check|uncheck <target>
-//   shoji ctl type <text> · key <Enter|Tab|Escape|…>    into the focused element, as keystrokes
+//   shoji ctl type <text> · key <Enter|Tab|Escape|Space|w|…> [--down|--up]   keystrokes into
+//                                       the focused element (--down/--up: hold a key, for games)
+//   shoji ctl sound on|off              headless starts muted (or start it with --sound)
 //   shoji ctl text [selector] · html [selector] · eval <js>
 //   shoji ctl console [--level error] · errors · network [--failed]   (add --all: earlier pages too)
 //   shoji ctl screenshot [file.png] [--full] [--retina]
@@ -65,6 +67,10 @@ func runControlClient(_ args: [String]) -> Never {
   case "key":
     guard let k = a.first else { fail("ctl key <name>") }
     req["key"] = k
+    if args.contains("--down") { req["action"] = "down" } else if args.contains("--up") { req["action"] = "up" }
+  case "sound":
+    guard let s = a.first, s == "on" || s == "off" else { fail("ctl sound on|off") }
+    req["on"] = s == "on"
   case "scroll":
     if let s = a.first {
       if s == "top" || s == "bottom" { req["to"] = s } else if let d = Double(s) { req["dy"] = d }
@@ -211,6 +217,7 @@ func startHeadless() {
   if n > 0 { exe[n] = 0 }
   var args = [String(cString: exe), "--headless", "--name", name]
   if offline { args.append("--offline") }
+  if flag("--sound") { args.append("--sound") }
   var attr = posix_spawnattr_t()
   posix_spawnattr_init(&attr)
   posix_spawnattr_setflags(&attr, Int16(0x80))          // POSIX_SPAWN_SETSID (glibc 2.26+)
@@ -220,6 +227,7 @@ func startHeadless() {
   _NSGetExecutablePath(&exe, &size)
   var args = [String(cString: exe), "--headless", "--name", name]
   if offline { args.append("--offline") }
+  if flag("--sound") { args.append("--sound") }
   var attr = posix_spawnattr_t(bitPattern: 0)
   posix_spawnattr_init(&attr)
   posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID))

@@ -271,7 +271,12 @@ void shoji_engine_scroll(ShojiEngine *e, double dx, double dy, double x, double 
   send(e, wpe_event_scroll_new(e->view, WPE_INPUT_SOURCE_MOUSE, t, 0, -dx / px_per_unit, -dy / px_per_unit, TRUE, FALSE, x, y));
 }
 
-void shoji_engine_key(ShojiEngine *e, unsigned keyval) {
+void shoji_engine_key(ShojiEngine *e, unsigned keyval) { shoji_engine_key_event(e, keyval, 0); }
+
+void shoji_engine_set_muted(ShojiEngine *e, int muted) { webkit_web_view_set_is_muted(e->web, muted != 0); }
+int shoji_engine_is_muted(ShojiEngine *e) { return webkit_web_view_get_is_muted(e->web) ? 1 : 0; }
+
+void shoji_engine_key_event(ShojiEngine *e, unsigned keyval, int kind) {
   WPEKeymap *keymap = wpe_display_get_keymap(e->display);
   WPEKeymapEntry *entries = NULL;
   guint n = 0;
@@ -282,9 +287,10 @@ void shoji_engine_key(ShojiEngine *e, unsigned keyval) {
     if (entries[0].level == 1) mods = WPE_MODIFIER_KEYBOARD_SHIFT;
   }
   g_free(entries);
-  guint32 t = event_time(e);
-  send(e, wpe_event_keyboard_new(WPE_EVENT_KEYBOARD_KEY_DOWN, e->view, WPE_INPUT_SOURCE_KEYBOARD, t, mods, keycode, keyval));
-  send(e, wpe_event_keyboard_new(WPE_EVENT_KEYBOARD_KEY_UP, e->view, WPE_INPUT_SOURCE_KEYBOARD, event_time(e), mods, keycode, keyval));
+  if (kind != 2)
+    send(e, wpe_event_keyboard_new(WPE_EVENT_KEYBOARD_KEY_DOWN, e->view, WPE_INPUT_SOURCE_KEYBOARD, event_time(e), mods, keycode, keyval));
+  if (kind != 1)
+    send(e, wpe_event_keyboard_new(WPE_EVENT_KEYBOARD_KEY_UP, e->view, WPE_INPUT_SOURCE_KEYBOARD, event_time(e), mods, keycode, keyval));
 }
 
 /// Unicode to X keysym: Latin-1 maps to itself, everything else to 0x01000000 + code point.

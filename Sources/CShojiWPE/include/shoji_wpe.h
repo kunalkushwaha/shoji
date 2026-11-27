@@ -67,6 +67,11 @@ void shoji_engine_mouse(ShojiEngine *e, int kind, double x, double y, int press_
 void shoji_engine_scroll(ShojiEngine *e, double dx, double dy, double x, double y);
 /// A key press + release. keyval: an X keysym (0xff0d Return, … or a Unicode keysym).
 void shoji_engine_key(ShojiEngine *e, unsigned keyval);
+/// kind: 0 press + release, 1 only down (held), 2 only up.
+void shoji_engine_key_event(ShojiEngine *e, unsigned keyval, int kind);
+/// Page mute: media elements and Web Audio.
+void shoji_engine_set_muted(ShojiEngine *e, int muted);
+int shoji_engine_is_muted(ShojiEngine *e);
 /// Text as typed: one key press per character.
 void shoji_engine_type_text(ShojiEngine *e, const char *utf8);
 

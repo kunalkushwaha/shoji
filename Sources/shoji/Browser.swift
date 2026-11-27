@@ -216,33 +216,63 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
   // MARK: input (page coordinates are CSS pixels from the top-left of the view)
 
-  func key(_ k: Key) {
+  /// A key: pressed and released, or (phase .down/.up) only held down or let go, for
+  /// pages that track held keys (games). Returns false for a key that can't be held.
+  @discardableResult
+  func key(_ k: Key, phase: KeyPhase = .press) -> Bool {
+    let chars: String, code: UInt16
     switch k {
-    case .text(let s): typeText(s)
-    case .enter: sendKey("\r", code: 36)
-    case .tab: sendKey("\t", code: 48)
-    case .backspace: sendKey("\u{7f}", code: 51)
-    case .escape: sendKey("\u{1b}", code: 53)
-    case .delete: sendKey(fn(NSDeleteFunctionKey), code: 117)
-    case .up: sendKey(fn(NSUpArrowFunctionKey), code: 126)
-    case .down: sendKey(fn(NSDownArrowFunctionKey), code: 125)
-    case .left: sendKey(fn(NSLeftArrowFunctionKey), code: 123)
-    case .right: sendKey(fn(NSRightArrowFunctionKey), code: 124)
-    case .home: sendKey(fn(NSHomeFunctionKey), code: 115)
-    case .end: sendKey(fn(NSEndFunctionKey), code: 119)
-    case .pageUp: sendKey(fn(NSPageUpFunctionKey), code: 116)
-    case .pageDown: sendKey(fn(NSPageDownFunctionKey), code: 121)
-    case .ctrl: break
+    case .text(let s):
+      if phase == .press { typeText(s); return true }
+      guard s.count == 1, let c = s.first, c.isASCII else { return false }
+      chars = s; code = Browser.keyCode(c)
+    case .enter: chars = "\r"; code = 36
+    case .tab: chars = "\t"; code = 48
+    case .backspace: chars = "\u{7f}"; code = 51
+    case .escape: chars = "\u{1b}"; code = 53
+    case .delete: chars = fn(NSDeleteFunctionKey); code = 117
+    case .up: chars = fn(NSUpArrowFunctionKey); code = 126
+    case .down: chars = fn(NSDownArrowFunctionKey); code = 125
+    case .left: chars = fn(NSLeftArrowFunctionKey); code = 123
+    case .right: chars = fn(NSRightArrowFunctionKey); code = 124
+    case .home: chars = fn(NSHomeFunctionKey); code = 115
+    case .end: chars = fn(NSEndFunctionKey); code = 119
+    case .pageUp: chars = fn(NSPageUpFunctionKey); code = 116
+    case .pageDown: chars = fn(NSPageDownFunctionKey); code = 121
+    case .ctrl: return false
     }
+    sendKey(chars, code: code, phase: phase)
     wake()
+    return true
   }
+
+  /// Sound off (WebKit's page mute: media elements and Web Audio). Headless starts muted.
+  /// WKWebView has no public call for it; _setPageMuted: is what Safari's tab mute uses.
+  var muted = false {
+    didSet {
+      let sel = NSSelectorFromString("_setPageMuted:")
+      guard web.responds(to: sel) else { return log("can't mute: this WebKit has no _setPageMuted:") }
+      typealias SetMuted = @convention(c) (AnyObject, Selector, UInt) -> Void
+      unsafeBitCast(web.method(for: sel), to: SetMuted.self)(web, sel, muted ? 1 : 0)   // 1: audio muted
+    }
+  }
+
+  /// macOS virtual key codes (kVK_ANSI_*), so pages see the right event.code ("KeyW").
+  private static let keyCodes: [Character: UInt16] = [
+    "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7, "c": 8, "v": 9, "b": 11, "q": 12,
+    "w": 13, "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23,
+    "=": 24, "9": 25, "7": 26, "-": 27, "8": 28, "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34,
+    "p": 35, "l": 37, "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44, "n": 45, "m": 46,
+    ".": 47, " ": 49, "`": 50,
+  ]
+  private static func keyCode(_ c: Character) -> UInt16 { keyCodes[Character(c.lowercased())] ?? 0 }
 
   /// Plain ASCII as key presses; other text (input methods: Japanese etc.) as
   /// committed text, the way an IME delivers it.
   func typeText(_ s: String) {
     if s.unicodeScalars.allSatisfy({ $0.isASCII }) {
       for ch in s {
-        if ch == "\n" || ch == "\r" { sendKey("\r", code: 36) } else { sendKey(String(ch), code: 0) }
+        if ch == "\n" || ch == "\r" { sendKey("\r", code: 36) } else { sendKey(String(ch), code: Browser.keyCode(ch)) }
       }
     } else {
       (web as NSView as? NSTextInputClient)?.insertText(s, replacementRange: NSRange(location: NSNotFound, length: 0))
@@ -252,8 +282,9 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
   private func fn(_ k: Int) -> String { String(Character(UnicodeScalar(UInt32(k))!)) }
 
-  private func sendKey(_ chars: String, code: UInt16) {
-    for type in [NSEvent.EventType.keyDown, .keyUp] {
+  private func sendKey(_ chars: String, code: UInt16, phase: KeyPhase = .press) {
+    let types: [NSEvent.EventType] = phase == .down ? [.keyDown] : phase == .up ? [.keyUp] : [.keyDown, .keyUp]
+    for type in types {
       if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [],
                                   timestamp: ProcessInfo.processInfo.systemUptime,
                                   windowNumber: window.windowNumber, context: nil, characters: chars,

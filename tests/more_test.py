@@ -126,6 +126,44 @@ try:
     check("console from an iframe names the frame", inner and "in frame" in inner[0] and "inner.html" in inner[0], con)
     check("console from the page itself has no frame", top and "in frame" not in top[0], con)
 
+    # keys for games: letters, Space, and keys held down (--down/--up), with the right event.code
+    keys = os.path.join(tmp, "keys.html")
+    with open(keys, "w") as f:
+        f.write("<title>Keys</title><body style='height:2000px'><script>window.log = []; window.held = new Set();"
+                "addEventListener('keydown', e => { log.push('down:' + e.key + ':' + e.code); held.add(e.code) });"
+                "addEventListener('keyup', e => { log.push('up:' + e.key + ':' + e.code); held.delete(e.code) });</script>")
+    ctl("open", keys)
+    ctl("click", "10", "10")
+    ctl("key", "w")
+    v = ctl("eval", "log.join(' ')", raw=True).get("result")
+    check("key w: a letter key (down and up, code KeyW)", v == "down:w:KeyW up:w:KeyW", v)
+    ctl("eval", "log = []; 1")
+    ctl("key", "Space")
+    v = ctl("eval", "log.join('|')", raw=True).get("result")
+    check("key Space", v == "down: :Space|up: :Space", v)
+    ctl("eval", "log = []; 1")
+    ctl("key", "w", "--down")
+    ctl("key", "ArrowUp", "--down")
+    time.sleep(0.3)
+    v = ctl("eval", "[...held].sort().join(' ') + ' / ' + log.join(' ')", raw=True).get("result")
+    check("key --down holds keys (two at once, no key up)", v == "ArrowUp KeyW / down:w:KeyW down:ArrowUp:ArrowUp", v)
+    ctl("key", "w", "--up")
+    v = ctl("eval", "[...held].join(' ')", raw=True).get("result")
+    check("key --up lets one go, the other stays held", v == "ArrowUp", v)
+    ctl("key", "ArrowUp", "--up")
+    v = ctl("eval", "held.size", raw=True).get("result")
+    check("key --up: nothing held", v == 0, v)
+    r = ctl("key", "日本", "--down", raw=True)
+    check("key --down: text that isn't one key is refused", r.get("ok") is False, r)
+
+    # sound: headless starts muted
+    r = ctl("status", raw=True)
+    check("headless starts muted", r.get("muted") is True, r)
+    r = ctl("sound", "on", raw=True)
+    check("sound on", r.get("muted") is False and ctl("status", raw=True).get("muted") is False, r)
+    r = ctl("sound", "off", raw=True)
+    check("sound off", r.get("muted") is True, r)
+
     blank = os.path.join(tmp, "blank.html")
     with open(blank, "w") as f:
         f.write("<title>Links</title><a href='%sapp.html' target='_blank'>new window</a>" % BASE)
@@ -135,6 +173,14 @@ try:
     check("target=_blank opens in the same view", r.get("url", "").endswith("app.html"), r)
 finally:
     ctl("quit")
+
+# --sound: a browser started with sound on
+SND = NAME + "-sound"
+try:
+    r = subprocess.run([SHOJI, "ctl", "--name", SND, "--sound", "--json", "status"], capture_output=True, text=True, timeout=60)
+    check("ctl --sound starts a browser with sound on", json.loads(r.stdout or "{}").get("muted") is False, r.stdout + r.stderr)
+finally:
+    ctl("quit", name=SND)
 
 # --offline: a separate browser started with the rules
 OFF = NAME + "-offline"

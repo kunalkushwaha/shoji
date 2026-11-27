@@ -84,11 +84,14 @@ shoji ctl console · network [--failed]   # everything logged / requested since 
 shoji ctl screenshot page.png --full     # then look at the PNG
 shoji ctl type "text" · key Enter · eval "document.title" · text "#msg" · scroll bottom · back
 shoji ctl dialog dismiss                 # how confirm()/prompt() are answered (default: accept)
+shoji ctl key w --down · key w --up      # games: hold keys (letters, Space, arrows…) and let go
 ```
 
 The headless browser quits after 30 idle minutes. `--name` keeps several apart;
 `--offline` (when it starts) blocks everything remote — blocked requests show up in
-`errors`. `--json` prints raw replies. Tested by `tests/agent_test.py`.
+`errors`. The headless browser is muted (nobody is listening): `--sound` when it starts,
+or `shoji ctl sound on`. `--json` prints raw replies. Tested by `tests/agent_test.py` and
+`tests/more_test.py`.
 
 ## Inside Neovim
 

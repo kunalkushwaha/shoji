@@ -245,10 +245,16 @@ final class Browser {
 
   // MARK: input (page coordinates are CSS pixels from the top-left of the view)
 
-  func key(_ k: Key) {
+  /// A key: pressed and released, or (phase .down/.up) only held down or let go, for
+  /// pages that track held keys (games). Returns false for a key that can't be held.
+  @discardableResult
+  func key(_ k: Key, phase: KeyPhase = .press) -> Bool {
     let keyval: UInt32
     switch k {
-    case .text(let s): typeText(s); return
+    case .text(let s):
+      if phase == .press { typeText(s); return true }
+      guard s.unicodeScalars.count == 1, let u = s.unicodeScalars.first else { return false }
+      keyval = (u.value >= 0x20 && u.value <= 0x7e) || (u.value >= 0xa0 && u.value <= 0xff) ? u.value : 0x0100_0000 | u.value
     case .enter: keyval = 0xff0d
     case .tab: keyval = 0xff09
     case .backspace: keyval = 0xff08
@@ -262,10 +268,17 @@ final class Browser {
     case .end: keyval = 0xff57
     case .pageUp: keyval = 0xff55
     case .pageDown: keyval = 0xff56
-    case .ctrl: return
+    case .ctrl: return false
     }
-    shoji_engine_key(web.engine, keyval)
+    shoji_engine_key_event(web.engine, keyval, phase == .press ? 0 : phase == .down ? 1 : 2)
     wake()
+    return true
+  }
+
+  /// Sound off (page mute: media elements and Web Audio). Headless starts muted.
+  var muted: Bool {
+    get { shoji_engine_is_muted(web.engine) != 0 }
+    set { shoji_engine_set_muted(web.engine, newValue ? 1 : 0) }
   }
 
   func typeText(_ s: String) {

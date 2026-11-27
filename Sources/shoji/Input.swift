@@ -9,6 +9,9 @@ enum Key {
   case ctrl(Character)       // Ctrl+letter, lower-case
 }
 
+/// A key pressed and released, or only held down / let go (`ctl key w --down`).
+enum KeyPhase { case press, down, up }
+
 enum MouseKind { case press, release, motion, wheelUp, wheelDown }
 
 struct Mouse {

@@ -163,8 +163,12 @@ final class Controller {
       settle(req) { reply(["ok": true]) }
     case "key":
       guard let k = keyNamed(req["key"] as? String ?? "") else { return reply(err("unknown key \(req["key"] ?? "")")) }
-      b.key(k)
+      let phase: KeyPhase = ["down": .down, "up": .up][req["action"] as? String ?? ""] ?? .press
+      guard b.key(k, phase: phase) else { return reply(err("can't hold \(req["key"] ?? "") down: one character or a named key")) }
       settle(req) { reply(["ok": true]) }
+    case "sound":
+      b.muted = !(req["on"] as? Bool ?? true)
+      reply(["ok": true, "muted": b.muted])
     case "resize":
       if let e = embed {
         e.cols = req["cols"] as? Int ?? e.cols
@@ -220,7 +224,8 @@ final class Controller {
     b.eval("return [window.scrollY, document.documentElement.scrollHeight, window.innerWidth, window.innerHeight]") { v, _ in
       let a = v as? [Any] ?? []
       var out: [String: Any] = ["ok": true, "url": b.web.url?.absoluteString ?? "", "title": b.web.title ?? "",
-                                "loading": b.web.isLoading, "canGoBack": b.web.canGoBack, "canGoForward": b.web.canGoForward]
+                                "loading": b.web.isLoading, "canGoBack": b.web.canGoBack, "canGoForward": b.web.canGoForward,
+                                "muted": b.muted]
       if a.count == 4 { out["scrollY"] = a[0]; out["pageHeight"] = a[1]; out["viewport"] = [a[2], a[3]] }
       if let e = b.lastError { out["error"] = e }
       if let d = b.lastDialog { out["lastAlert"] = d }
@@ -287,7 +292,8 @@ func keyNamed(_ name: String) -> Key? {
   case "end": return .end
   case "pageup": return .pageUp
   case "pagedown": return .pageDown
-  default: return nil
+  case "space": return .text(" ")
+  default: return name.count == 1 ? .text(name) : nil      // a letter, digit or symbol: "w", "W", "1", "?"
   }
 }
 
