@@ -2,7 +2,7 @@
 frames arrive and draw the page, inline (as over SSH or from a container) and as temp
 files, that a click on the terminal reaches the page, and that later frames send only
 the rows that changed. Run: python3 -I tests/terminal_test.py [shoji]"""
-import base64, fcntl, functools, http.server, json, os, pty, re, select, shutil, struct, subprocess, sys
+import base64, fcntl, socket, functools, http.server, json, os, pty, re, select, shutil, struct, subprocess, sys
 import termios, threading, time, zlib
 
 SHOJI = sys.argv[1] if len(sys.argv) > 1 else shutil.which("shoji")
@@ -100,9 +100,28 @@ class FakeKitty:
         out = p.communicate(timeout=5)[0]
         return json.loads(out) if out.strip() else {}
 
-    def click(self, x, y):
+    def scale(self):
+        """Device pixels per CSS pixel: 1 on Linux (unless SHOJI_SCALE), 2 on a Retina Mac."""
+        return self.w / self.ctl("eval", "window.innerWidth")["result"]
+
+    def screenshot(self, path, scale):
+        """ctl screenshot at a given scale, straight through the control socket."""
+        sock = os.path.join(os.environ.get("TMPDIR", "/tmp"), "shoji-%s.sock" % self.name)
+        c = socket.socket(socket.AF_UNIX)
+        c.connect(sock)
+        c.sendall(json.dumps({"cmd": "screenshot", "path": path, "scale": scale}).encode() + b"\n")
+        buf = b""
+        while not buf.endswith(b"\n"):
+            self.pump(0.02)
+            c.settimeout(0.05)
+            try: buf += c.recv(65536)
+            except socket.timeout: pass
+        c.close()
+        return json.loads(buf)
+
+    def click(self, x, y, scale=1):
         """A left click at page CSS pixels (the page starts one row down)."""
-        px, py = int(x), int(y) + CH
+        px, py = int(x * scale), int(y * scale) + CH
         os.write(self.fd, b"\x1b[<0;%d;%dM\x1b[<0;%d;%dm" % (px, py, px, py))
 
     def quit(self):
@@ -154,8 +173,9 @@ def run(label, probe_answer, expect_transfer, extra_env=None, tty_pixels=True):
         first = t.commands[0]
         check("frames go as %s" % expect_transfer,
               (first[1], first[2]) == {"inline": ("d", "z"), "temp files": ("t", None)}[expect_transfer], first)
+        sc = t.scale()
         shot = "/tmp/shoji-term-test-%d.png" % os.getpid()
-        r = t.ctl("screenshot", shot)
+        r = t.screenshot(shot, sc)
         t.pump(1)
         w, h, ref = rgba_png(shot)
         os.unlink(shot)
@@ -165,7 +185,7 @@ def run(label, probe_answer, expect_transfer, extra_env=None, tty_pixels=True):
         p = t.ctl("eval", "(() => { const r = document.querySelector('#save').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2] })()")["result"]
         t.ctl("eval", "document.querySelector('#fullname').value = 'Terminal'; 1")
         before = len(t.commands)
-        t.click(*p)
+        t.click(*p, scale=sc)
         t.pump(2)
         out = t.ctl("text", "#out").get("text", "")
         check("a click in the terminal reaches the page", out.startswith("Saved Terminal"), out)
@@ -173,7 +193,7 @@ def run(label, probe_answer, expect_transfer, extra_env=None, tty_pixels=True):
         check("after the click, only changed rows are sent (a=f)",
               later and all(c[0] == "f" for c in later) and max(c[4] for c in later) < t.h, later[:4])
         r2 = "/tmp/shoji-term-test2-%d.png" % os.getpid()
-        t.ctl("screenshot", r2)
+        t.screenshot(r2, sc)
         t.pump(1)
         _, _, ref2 = rgba_png(r2)
         os.unlink(r2)
@@ -209,7 +229,7 @@ def run_scaled(scale=1.25):
         t.quit()
 
 try:
-    run_scaled()
+    if sys.platform.startswith("linux"): run_scaled()      # SHOJI_SCALE is Linux-only (macOS uses the screen's)
     run("terminal can't read our files (SSH, container): inline", "ENOENT:No such file or directory", "inline")
     run("terminal reads our files (local): temp files", "OK", "temp files")
     run("terminal doesn't answer the probe: temp files, as before", None, "temp files")
