@@ -13,4 +13,5 @@ RUN curl -fsSL https://download.swift.org/swift-${SWIFT}-release/debian12/swift-
 RUN useradd -m builder
 USER builder
 WORKDIR /pkg
-CMD ["makepkg", "--nodeps", "--force", "--noconfirm"]
+# --skipchecksums: the local source tarball is a git archive, not GitHub's (whose sum the PKGBUILD has)
+CMD ["makepkg", "--nodeps", "--force", "--noconfirm", "--skipchecksums"]

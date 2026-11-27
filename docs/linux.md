@@ -335,8 +335,8 @@ frames must be `a=f` row updates.
   into a fresh container with the distro's package manager (the `.deb` with
   `--no-install-recommends`, so `Depends` alone is enough), and agent_test, more_test
   and embed_test all pass against the installed `/usr/bin/shoji` as a normal user.
-  Before the PKGBUILD can go to the AUR: the repository must be public (then a real
-  `sha256sums` for the tag's tarball). shoji is Apache-2.0 licensed.
+  The repository is public and Apache-2.0 licensed, and the PKGBUILD carries the v0.3.0
+  tarball's checksum, so it can go to the AUR as is.
 
 ### Not done yet
 

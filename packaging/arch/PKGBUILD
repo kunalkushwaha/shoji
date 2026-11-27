@@ -1,8 +1,8 @@
 # shoji for Arch Linux: built against Arch's own wpewebkit (2.54+) and glibc.
 #
 # Local build: scripts/dist-linux.sh arch (puts the source tarball next to this file,
-# so makepkg doesn't download it). Before this can go to the AUR, the repository must
-# be public (then replace SKIP with the tag tarball's sum).
+# so makepkg doesn't download it; update sha256sums, or build with --skipchecksums, when
+# the source differs from the tag). On a new version: bump pkgver and the sum.
 pkgname=shoji
 pkgver=0.3.0
 pkgrel=1
@@ -16,7 +16,7 @@ optdepends=('noto-fonts-cjk: pages in Chinese, Japanese or Korean')
 makedepends=('swift-bin' 'pkgconf')
 options=('!lto' '!debug')
 source=("$pkgname-$pkgver.tar.gz::https://github.com/kunalkushwaha/shoji/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('6594bd54a8ea1daedc1e8e47c85c687158cf47caa9eb6d3fa462e229de373dee')
 
 build() {
   cd "$pkgname-$pkgver"
