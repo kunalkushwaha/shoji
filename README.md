@@ -21,6 +21,33 @@ it with the mouse and keyboard. Frames are sent only when the page changes.
 
 The top bar's ◀ ▶ ⟳ are clickable; click the address to edit it.
 
+## For agents: `wkterm ctl`
+
+Drive a page from the shell — made for coding agents like Claude Code, which can then
+read what a page says and look at it:
+
+```sh
+wkterm ctl open ./index.html          # starts a headless browser on first use, waits for the load
+wkterm ctl click "#email"             # by CSS selector (or: click <x> <y>)
+wkterm ctl type "me@example.com"
+wkterm ctl key Enter
+wkterm ctl text "#msg"                # the page's (or an element's) text
+wkterm ctl eval "document.title"      # any JavaScript, result as JSON
+wkterm ctl screenshot /tmp/page.png   # what's in view, as a PNG
+wkterm ctl scroll bottom · status · back · wait "#loaded" · quit
+```
+
+The headless browser quits after 30 idle minutes. `--name` keeps several apart;
+`--offline` (when it starts) blocks everything remote.
+
+## Inside Neovim
+
+`wkterm --embed` draws a live page in a Neovim window through unicode placeholders
+(the window's buffer holds the placeholder grid; frames reach the terminal through
+`nvim_ui_send`). The Neovim side lives in the dotfiles (`Space m w` / `:Wkterm`). An
+embedded page also answers `wkterm ctl --name <buffer's b:wkterm>`, so an agent can
+read and drive the very page you're looking at.
+
 **Private:** nothing is stored between runs. **`--offline`:** every request that isn't a
 local file is blocked by WebKit itself, so local reports and prototypes can't phone home.
 
@@ -37,4 +64,4 @@ Measurements behind each choice: [docs/research.md](docs/research.md).
 ## Status
 
 Early prototype. Not yet: right-click menus, tabs, downloads, WebGL/video capture,
-agent control, use inside Neovim/tmux (unicode placeholders), Linux (WPE WebKit).
+hover inside Neovim, tmux, Linux (WPE WebKit).
