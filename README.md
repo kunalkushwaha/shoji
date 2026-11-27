@@ -64,21 +64,30 @@ The top bar's ◀ ▶ ⟳ are clickable; click the address to edit it.
 ## For agents: `shoji ctl`
 
 Drive a page from the shell — made for coding agents like Claude Code, which can then
-read what a page says and look at it:
+see what's on a page, act on it, and debug it:
 
 ```sh
-shoji ctl open ./index.html          # starts a headless browser on first use, waits for the load
-shoji ctl click "#email"             # by CSS selector (or: click <x> <y>)
-shoji ctl type "me@example.com"
-shoji ctl key Enter
-shoji ctl text "#msg"                # the page's (or an element's) text
-shoji ctl eval "document.title"      # any JavaScript, result as JSON
-shoji ctl screenshot /tmp/page.png   # what's in view, as a PNG
-shoji ctl scroll bottom · status · back · wait "#loaded" · quit
+shoji ctl open ./index.html              # starts a headless browser on first use, waits for the load
+shoji ctl snapshot --view                # what's on screen, with short ids:
+#   heading "Account settings" [e1] level=1
+#   textbox "Full name" [e2] value=""
+#   combobox "Country" [e3] selected="Japan" options=3
+#   button "Save" [e6]
+#   button "Bottom button" [e11] ↓        (↓ below the view; clicking scrolls to it)
+shoji ctl fill e2 "Ada Lovelace"         # targets: an id, visible text, or a CSS selector
+shoji ctl select Country India
+shoji ctl check "Send me news"
+shoji ctl click Save
+shoji ctl errors                         # uncaught exceptions, console.error, failed or 4xx/5xx requests
+shoji ctl console · network [--failed]   # everything logged / requested since the page loaded
+shoji ctl screenshot page.png --full     # then look at the PNG
+shoji ctl type "text" · key Enter · eval "document.title" · text "#msg" · scroll bottom · back
+shoji ctl dialog dismiss                 # how confirm()/prompt() are answered (default: accept)
 ```
 
 The headless browser quits after 30 idle minutes. `--name` keeps several apart;
-`--offline` (when it starts) blocks everything remote.
+`--offline` (when it starts) blocks everything remote — blocked requests show up in
+`errors`. `--json` prints raw replies. Tested by `tests/agent_test.py`.
 
 ## Inside Neovim
 

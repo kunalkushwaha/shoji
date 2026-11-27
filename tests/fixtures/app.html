@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Test app</title>
+<style>body{font:16px -apple-system;margin:30px} #overlay{position:fixed;left:0;right:0;bottom:0;height:90px;background:#222;color:#fff;padding:10px}
+.tall{height:2200px;background:linear-gradient(#fff,#e8eef7)}</style></head><body>
+<h1>Account settings</h1>
+<label for="fullname">Full name</label> <input id="fullname" placeholder="Your name">
+<label>Country <select id="country"><option>Japan</option><option>India</option><option>United Kingdom</option></select></label>
+<label><input type="checkbox" id="news"> Send me news</label>
+<div id="bio" contenteditable="true" aria-label="Bio" style="border:1px solid #ccc;min-height:30px"></div>
+<button id="save" onclick="save()">Save</button>
+<button id="boom" onclick="boom()">Break something</button>
+<button id="ask" onclick="ask()">Delete account</button>
+<p id="out"></p>
+<a href="#bottom">Jump to bottom</a>
+<img src="missing.png" alt="missing picture">
+<div class="tall"></div>
+<button id="bottomBtn" onclick="out.textContent='bottom clicked'">Bottom button</button><span id="bottom"></span>
+<div id="overlay">Cookie banner <button onclick="overlay.remove()">Accept cookies</button></div>
+<script>
+  console.log("app started", {version: 2});
+  console.warn("deprecated option used");
+  fetch("data.json").then(r => r.json()).then(d => console.log("data", d.items.length));
+  fetch("nope.json").then(r => console.log("nope status", r.status));
+  function save() { out.textContent = "Saved " + fullname.value + " / " + country.value + " / news=" + news.checked + " / bio=" + bio.innerText; console.info("saved"); }
+  function boom() { console.error("about to fail"); undefined_function_call(); }
+  function ask() { out.textContent = confirm("Really delete?") ? "deleted" : "kept"; }
+  Promise.reject(new Error("background job failed"));
+</script></body></html>

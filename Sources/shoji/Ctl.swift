@@ -1,15 +1,19 @@
 // `shoji ctl`: drive a browser from the shell (made for coding agents).
 //
-//   shoji ctl open <url|file>         load, wait, print title and address
-//   shoji ctl text [selector]         the page's (or an element's) text
-//   shoji ctl html [selector]
-//   shoji ctl click <selector>        or: click <x> <y>   (CSS pixels)
-//   shoji ctl type <text>             into the focused element
-//   shoji ctl key <Enter|Tab|Escape|Backspace|Up|Down|PageDown|…>
-//   shoji ctl scroll <px|top|bottom>  (default: one screen down)
-//   shoji ctl eval <js>               value of the last expression, as JSON
-//   shoji ctl screenshot [file.png] [--retina]
-//   shoji ctl wait [selector] [--timeout S]
+//   shoji ctl open <url|file>           load, wait, print title and address
+//   shoji ctl snapshot [--view] [--text] outline with ids: button "Sign up" [e3]
+//                                       (--view: only what's on screen; --text: paragraphs too)
+//   shoji ctl click <target>            target: an id from the snapshot (e3), visible text
+//                                       ("Sign up"), or a CSS selector (#go); or: click <x> <y>
+//   shoji ctl fill <target> <text>      set a text field's value (input/change events fire)
+//   shoji ctl select <target> <option>  pick an option of a <select>
+//   shoji ctl check|uncheck <target>
+//   shoji ctl type <text> · key <Enter|Tab|Escape|…>    into the focused element, as keystrokes
+//   shoji ctl text [selector] · html [selector] · eval <js>
+//   shoji ctl console [--level error] · errors · network [--failed]   (add --all: earlier pages too)
+//   shoji ctl screenshot [file.png] [--full] [--retina]
+//   shoji ctl dialog accept [text] | dismiss    how confirm()/prompt() are answered
+//   shoji ctl scroll <px|top|bottom> · wait [selector] [--timeout S]
 //   shoji ctl status | back | forward | reload | quit
 //
 // A headless browser is started on first use (one per --name; it quits after
@@ -34,8 +38,27 @@ func runControlClient(_ args: [String]) -> Never {
     if let s = a.first { req["selector"] = s }
   case "click":
     if a.count == 2, let x = Double(a[0]), let y = Double(a[1]) { req["x"] = x; req["y"] = y }
-    else if let s = a.first { req["selector"] = s }
-    else { fail("ctl click <selector> | <x> <y>") }
+    else if !a.isEmpty { req["target"] = a.joined(separator: " ") }
+    else { fail("ctl click <e12 | \"visible text\" | css selector> | <x> <y>") }
+  case "snapshot":
+    if args.contains("--text") { req["text"] = true }
+    if args.contains("--view") { req["view"] = true }
+    if let m = option("--max").flatMap(Int.init) { req["max"] = m }
+  case "fill", "select":
+    guard a.count >= 2 else { fail("ctl \(cmd) <target> <value>") }
+    req["target"] = a[0]
+    req["value"] = a.dropFirst().joined(separator: " ")
+  case "check", "uncheck":
+    guard !a.isEmpty else { fail("ctl \(cmd) <target>") }
+    req["target"] = a.joined(separator: " ")
+  case "console", "errors", "network":
+    if args.contains("--all") { req["all"] = true }
+    if args.contains("--clear") { req["clear"] = true }
+    if args.contains("--failed") { req["failed"] = true }
+    if let l = option("--level") { req["level"] = l }
+  case "dialog":
+    req["action"] = a.first ?? "accept"
+    if a.count > 1 { req["text"] = a.dropFirst().joined(separator: " ") }
   case "type":
     guard !a.isEmpty else { fail("ctl type <text>") }
     req["text"] = a.joined(separator: " ")
@@ -52,6 +75,7 @@ func runControlClient(_ args: [String]) -> Never {
   case "screenshot":
     if let p = a.first { req["path"] = URL(fileURLWithPath: (p as NSString).expandingTildeInPath).path }
     if args.contains("--retina") { req["scale"] = 2.0 }
+    if args.contains("--full") { req["full"] = true }
   case "wait":
     if let s = a.first { req["selector"] = s }
     if let t = option("--timeout").flatMap(Double.init) { req["timeout"] = t }
@@ -99,9 +123,31 @@ func runControlClient(_ args: [String]) -> Never {
       print(String(decoding: d, as: UTF8.self))
     }
   case "screenshot": print(reply["path"] as? String ?? "")
-  case "click":
-    let what = [reply["tag"], reply["text"]].compactMap { $0 as? String }.filter { !$0.isEmpty }
-    print("clicked" + (what.isEmpty ? " at \(reply["x"] ?? "")," + "\(reply["y"] ?? "")" : " <\(what[0])>" + (what.count > 1 ? " \"\(what[1])\"" : "")))
+  case "click", "check", "uncheck":
+    var line = cmd == "click" ? "clicked" : (reply["changed"] as? Bool == false ? "already \(cmd)ed" : "\(cmd)ed")
+    if let w = reply["what"] as? String, !w.isEmpty { line += " " + w } else if cmd == "click" { line += " at \(reply["x"] ?? ""),\(reply["y"] ?? "")" }
+    if let c = reply["covered"] as? String { line += " (covered by \(c): clicked by script)" }
+    print(line)
+  case "snapshot":
+    let title = reply["title"] as? String ?? "", url = reply["url"] as? String ?? ""
+    print("\(title.isEmpty ? "(no title)" : title) — \(url)")
+    if let y = reply["scrollY"], let h = reply["pageHeight"] { print("scroll \(y) of \(h)\n") }
+    for l in reply["lines"] as? [String] ?? [] { print(l) }
+    let shown = (reply["shown"] as? NSNumber)?.intValue ?? 0, total = (reply["total"] as? NSNumber)?.intValue ?? 0
+    if total > shown { print("… \(total - shown) more (use --max)") }
+    if (reply["lines"] as? [String] ?? []).contains(where: { $0.hasSuffix("↓") || $0.hasSuffix("↑") }) {
+      print("(↓ below / ↑ above the view; clicking scrolls to it)")
+    }
+  case "fill":
+    print("filled \(reply["what"] ?? "") = \"\(reply["value"] ?? "")\"")
+  case "select":
+    print("selected \"\(reply["selected"] ?? "")\" in \(reply["what"] ?? "")")
+  case "dialog":
+    print("dialogs: \(reply["dialogs"] ?? "")")
+  case "console", "errors", "network":
+    let entries = reply["entries"] as? [[String: Any]] ?? []
+    if entries.isEmpty { print("(none since the page loaded\(args.contains("--all") ? "" : "; --all for earlier pages"))") }
+    for e in entries { print(formatEntry(e)) }
   case "open", "back", "forward", "reload", "status", "scroll", "wait":
     if let t = reply["title"] as? String { print(t.isEmpty ? "(no title)" : t) }
     if let u = reply["url"] as? String { print(u) }
@@ -112,6 +158,38 @@ func runControlClient(_ args: [String]) -> Never {
   default: print("ok")
   }
   exit(0)
+}
+
+/// One line per log entry: console output, errors, requests, dialogs.
+func formatEntry(_ e: [String: Any]) -> String {
+  let t = String(format: "%6.2fs", (e["t"] as? NSNumber)?.doubleValue ?? 0)
+  let frame = (e["frame"] as? String).map { "  (in frame \($0))" } ?? ""
+  switch e["k"] as? String ?? "" {
+  case "console":
+    return "\(t) \((e["level"] as? String ?? "info").padding(toLength: 5, withPad: " ", startingAt: 0)) \(e["text"] ?? "")\(frame)"
+  case "error":
+    var s = "\(t) ERROR \(e["text"] ?? "")\(frame)"
+    if let st = e["stack"] as? String, !st.isEmpty { s += "\n" + st.split(separator: "\n").prefix(4).map { "         " + $0 }.joined(separator: "\n") }
+    return s
+  case "network":
+    let url = e["url"] as? String ?? ""
+    let type = e["type"] as? String ?? ""
+    var extra: [String] = [type]
+    if let ms = e["ms"] { extra.append("\(ms) ms") }
+    if let sz = e["size"] as? NSNumber, sz.intValue > 0 { extra.append("\(sz.intValue / 1024) KB") }
+    if e["failed"] as? Bool == true {
+      return "\(t) FAIL  \(url)  (\(type): \(e["error"] ?? "failed"))\(frame)"
+    }
+    let status = (e["status"] as? NSNumber).map { "\($0)" } ?? "   "
+    let method = e["method"] as? String ?? "GET"
+    return "\(t) \(method) \(status) \(url)  (\(extra.joined(separator: ", ")))\(frame)"
+  case "dialog":
+    return "\(t) \(e["type"] ?? "dialog") \"\(e["text"] ?? "")\"" + ((e["answer"] as? String).map { " → \($0)" } ?? "")
+  case "navigation":
+    return "── page: \(e["url"] ?? "")"
+  default:
+    return "\(t) \(e)"
+  }
 }
 
 func connectSocket(_ path: String) -> Int32 {

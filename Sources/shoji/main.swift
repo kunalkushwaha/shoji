@@ -22,7 +22,7 @@ func positional(_ args: [String]) -> [String] {
   var out: [String] = [], skip = false
   for a in args {
     if skip { skip = false; continue }
-    if ["--name", "--image-id", "--size", "--idle-exit"].contains(a) { skip = true; continue }
+    if ["--name", "--image-id", "--size", "--idle-exit", "--level", "--max", "--timeout"].contains(a) { skip = true; continue }
     if a.hasPrefix("--") { continue }
     out.append(a)
   }
@@ -33,7 +33,7 @@ func fail(_ s: String) -> Never {
   exit(1)
 }
 
-let version = "0.1.1"
+let version = "0.2.0"
 if flag("--version") || flag("-v") { print("shoji \(version)"); exit(0) }
 if flag("--help") || flag("-h") {
   print("""
@@ -44,8 +44,9 @@ if flag("--help") || flag("-h") {
     shoji --headless [url] [--offline]          the headless browser itself
     shoji --embed --image-id ID [url]           inside Neovim (JSON lines on stdin/stdout)
 
-  ctl commands: open, text, html, click, type, key, scroll, eval, screenshot, wait,
-                status, back, forward, reload, quit       (shoji ctl with no command: usage)
+  ctl commands: open, snapshot, click, fill, select, check, uncheck, type, key, scroll,
+                text, html, eval, screenshot [--full], console, errors, network, dialog,
+                wait, status, back, forward, reload, quit     (shoji ctl with no command: usage)
   options:      --offline  block every non-local request · --name N  separate browsers
                 --json     raw replies (ctl)
 

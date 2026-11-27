@@ -30,41 +30,6 @@ func log(_ s: String) {
 
 enum MouseAction { case press, release, move, wheelUp, wheelDown }
 
-/// Tells us when a text field gains or loses focus (in every frame), so the
-/// Neovim side can send keys to the page only while you're typing in one.
-private let focusScript = """
-(function () {
-  function editable(e) {
-    if (!e) return false;
-    if (e.isContentEditable) return true;
-    if (e.tagName === 'TEXTAREA' || e.tagName === 'SELECT') return true;
-    if (e.tagName !== 'INPUT') return false;
-    return !/^(button|submit|reset|checkbox|radio|image|file|range|color|hidden)$/i.test(e.type || '');
-  }
-  let last = null;
-  function report() {
-    const now = editable(document.activeElement);
-    if (now === last) return;
-    last = now;
-    try { window.webkit.messageHandlers.shojiFocus.postMessage(now); } catch (e) {}
-  }
-  document.addEventListener('focusin', report, true);
-  document.addEventListener('focusout', () => setTimeout(report, 0), true);
-  window.addEventListener('pageshow', report);
-
-  // Tell shoji when the page changes (DOM edits, animations and transitions
-  // starting), so it can wake up instead of checking often. At most every 100 ms.
-  let pending = false;
-  function changed() {
-    if (pending) return;
-    pending = true;
-    setTimeout(() => { pending = false; try { window.webkit.messageHandlers.shojiWake.postMessage(1); } catch (e) {} }, 100);
-  }
-  new MutationObserver(changed).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-  ['animationstart', 'animationiteration', 'transitionstart', 'transitionrun', 'load', 'resize'].forEach(t => window.addEventListener(t, changed, true));
-})();
-"""
-
 final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
   let display: Display
   let offline: Bool
@@ -95,8 +60,10 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     let config = WKWebViewConfiguration()
     config.websiteDataStore = .nonPersistent()          // private by default
     if let rules = rules { config.userContentController.add(rules) }
-    config.userContentController.addUserScript(WKUserScript(source: focusScript, injectionTime: .atDocumentStart,
-                                                            forMainFrameOnly: false))
+    config.userContentController.addUserScript(WKUserScript(source: pageWorldScript, injectionTime: .atDocumentStart,
+                                                            forMainFrameOnly: false, in: .page))
+    config.userContentController.addUserScript(WKUserScript(source: helperScript, injectionTime: .atDocumentStart,
+                                                            forMainFrameOnly: true, in: Browser.helperWorld))
     web = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: config)
     super.init()
     web.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
@@ -104,6 +71,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     web.uiDelegate = self
     config.userContentController.add(self, name: "shojiFocus")
     config.userContentController.add(self, name: "shojiWake")
+    config.userContentController.add(self, name: "shojiLog")
     Browser.keepAliveOffScreen(web)
     window.contentView = web
     window.acceptsMouseMovedEvents = true
@@ -358,6 +326,31 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     }
   }
 
+  /// A PNG of the whole page: the view is made as tall as the page (up to 16000
+  /// CSS pixels) for the picture, then put back.
+  func screenshotFull(to path: String, scale outScale: Double, _ done: @escaping ([String: Any]) -> Void) {
+    eval("return [document.documentElement.scrollHeight, window.scrollY]") { v, _ in
+      let a = v as? [Any] ?? []
+      let height = min(16000, max(self.web.bounds.height, (a.first as? NSNumber)?.doubleValue ?? 0))
+      let scroll = (a.count > 1 ? a[1] as? NSNumber : nil)?.doubleValue ?? 0
+      let saved = self.web.frame
+      self.window.setContentSize(NSSize(width: saved.width, height: height))
+      self.web.frame = NSRect(x: 0, y: 0, width: saved.width, height: height)
+      self.eval("window.scrollTo(0, 0); return 0") { _, _ in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+          self.screenshot(to: path, scale: outScale) { result in
+            self.window.setContentSize(saved.size)
+            self.web.frame = saved
+            self.eval("window.scrollTo(0, \(scroll)); return 0") { _, _ in }
+            self.display.resetFrame()
+            self.wake()
+            done(result)
+          }
+        }
+      }
+    }
+  }
+
   /// A PNG of what's in view. scale 1 = CSS pixels (smaller files), 2 = Retina.
   func screenshot(to path: String, scale outScale: Double, _ done: @escaping ([String: Any]) -> Void) {
     let cfg = WKSnapshotConfiguration()
@@ -393,6 +386,11 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
   func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
     if message.name == "shojiWake" { wake(for: 0.5); return }
+    if message.name == "shojiLog", var entry = message.body as? [String: Any] {
+      if !message.frameInfo.isMainFrame { entry["frame"] = message.frameInfo.request.url?.absoluteString ?? "frame" }
+      record(entry)
+      return
+    }
     if message.name == "shojiFocus", let editable = message.body as? Bool {
       log("focus editable=\(editable)")
       display.focusChanged(editable: editable)
@@ -405,11 +403,23 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     wake(for: 1.5)
   }
 
-  /// A new page: forget the previous one's error and alert.
+  /// A new page: forget the previous one's error and alert; mark it in the log.
   func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
     lastError = nil
     lastDialog = nil
+    record(["k": "navigation", "url": webView.url?.absoluteString ?? ""])
+    if let st = pendingStatus { record(["k": "network", "type": "document", "url": st.url, "status": st.status]); pendingStatus = nil }
   }
+
+  /// The page's own HTTP status (for the network log).
+  func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse,
+               decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+    if navigationResponse.isForMainFrame, let r = navigationResponse.response as? HTTPURLResponse {
+      pendingStatus = (r.url?.absoluteString ?? "", r.statusCode)
+    }
+    decisionHandler(.allow)
+  }
+  private var pendingStatus: (url: String, status: Int)?
 
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
     lastError = error.localizedDescription
@@ -418,6 +428,8 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
     lastError = error.localizedDescription
+    record(["k": "network", "type": "document", "url": (error as NSError).userInfo[NSURLErrorFailingURLStringErrorKey] as? String ?? "",
+            "failed": true, "error": error.localizedDescription])
     statusChanged()
   }
   var lastError: String?
@@ -434,7 +446,58 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
                initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
     log("alert: \(message)")
     lastDialog = message
+    record(["k": "dialog", "type": "alert", "text": message])
     completionHandler()
   }
   var lastDialog: String?
+
+  /// confirm() and prompt(): answered by the dialog policy (accept by default;
+  /// `shoji ctl dialog dismiss` / `dialog accept <text>` changes it).
+  var dialogAccept = true
+  var dialogText: String?
+
+  func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+               initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+    lastDialog = message
+    record(["k": "dialog", "type": "confirm", "text": message, "answer": dialogAccept ? "OK" : "Cancel"])
+    completionHandler(dialogAccept)
+  }
+
+  func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
+               initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+    lastDialog = prompt
+    let answer = dialogAccept ? (dialogText ?? defaultText ?? "") : nil
+    record(["k": "dialog", "type": "prompt", "text": prompt, "answer": answer ?? "(cancelled)"])
+    completionHandler(answer)
+  }
+
+  // MARK: page log (console, errors, network, dialogs) for agents
+
+  static let helperWorld = WKContentWorld.world(name: "shoji")
+  private(set) var pageLog: [[String: Any]] = []
+  private var logStart = Date()
+
+  func record(_ entry: [String: Any]) {
+    var e = entry
+    e["t"] = (Date().timeIntervalSince(logStart) * 1000).rounded() / 1000
+    pageLog.append(e)
+    if pageLog.count > 1000 { pageLog.removeFirst(pageLog.count - 1000) }
+  }
+
+  /// Entries since the current page started (or all of them).
+  func logEntries(all: Bool) -> [[String: Any]] {
+    if all { return pageLog }
+    guard let i = pageLog.lastIndex(where: { $0["k"] as? String == "navigation" }) else { return pageLog }
+    return Array(pageLog[(i + 1)...])
+  }
+
+  /// Run JavaScript in shoji's isolated world (the outline and actions live there).
+  func evalHelper(_ js: String, _ args: [String: Any] = [:], _ done: @escaping (Any?, String?) -> Void) {
+    web.callAsyncJavaScript(js, arguments: args, in: nil, in: Browser.helperWorld) { result in
+      switch result {
+      case .success(let v): done(v, nil)
+      case .failure(let e): done(nil, (e as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? e.localizedDescription)
+      }
+    }
+  }
 }

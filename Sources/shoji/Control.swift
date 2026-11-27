@@ -51,28 +51,89 @@ final class Controller {
       // the last expression's value, awaiting promises
       evalJS("return await eval(\(jsString(js)))", reply) { v in ["ok": true, "result": jsonSafe(v)] }
     case "click":
-      if let sel = req["selector"] as? String {
-        let js = """
-        const e = document.querySelector(\(jsString(sel)));
-        if (!e) return null;
-        e.scrollIntoView({block: 'center', inline: 'center'});
-        const r = e.getBoundingClientRect();
-        return {x: r.left + r.width / 2, y: r.top + r.height / 2, tag: e.tagName.toLowerCase(),
-                text: (e.innerText || e.value || '').trim().slice(0, 80)};
-        """
-        b.eval(js) { v, e in
-          guard let o = v as? [String: Any], let x = o["x"] as? Double, let y = o["y"] as? Double else {
-            return reply(err(e ?? "no element matches \(sel)"))
-          }
-          b.click(x: x, y: y)
-          self.settle(req) { reply(["ok": true, "x": x, "y": y, "tag": o["tag"] ?? "", "text": o["text"] ?? ""]) }
-        }
-      } else if let p = point(req) {
+      if let p = point(req) {
         b.click(x: p.x, y: p.y)
         settle(req) { reply(["ok": true, "x": p.x, "y": p.y]) }
-      } else {
-        reply(err("click needs a selector or x/y"))
+        return
       }
+      guard let target = req["target"] as? String ?? req["selector"] as? String else {
+        return reply(err("click needs a target (e12, visible text, a CSS selector) or x/y"))
+      }
+      b.evalHelper("return __shoji.point(t)", ["t": target]) { v, e in
+        guard let o = v as? [String: Any], let x = (o["x"] as? NSNumber)?.doubleValue, let y = (o["y"] as? NSNumber)?.doubleValue else {
+          return reply(err(e ?? "can't find \(target)"))
+        }
+        var out: [String: Any] = ["ok": true, "what": o["what"] ?? "", "x": x, "y": y]
+        if let covered = o["covered"] as? String {
+          // something sits on top (a banner, an overlay): click the element itself by script
+          out["covered"] = covered
+          b.evalHelper("return __shoji.clickLast()") { _, _ in self.settle(req) { reply(out) } }
+        } else {
+          b.click(x: x, y: y)
+          self.settle(req) { reply(out) }
+        }
+      }
+    case "snapshot":
+      let opts: [String: Any] = ["text": req["text"] as? Bool ?? false, "view": req["view"] as? Bool ?? false,
+                                 "max": req["max"] as? Int ?? 400]
+      b.evalHelper("return __shoji.snapshot(o)", ["o": opts]) { v, e in
+        guard var o = v as? [String: Any] else { return reply(err(e ?? "snapshot failed")) }
+        o["ok"] = true
+        reply(o)
+      }
+    case "fill", "select":
+      guard let target = req["target"] as? String, let value = req["value"] as? String else {
+        return reply(err("\(cmd) needs a target and a value"))
+      }
+      b.evalHelper("return __shoji.\(cmd)(t, v)", ["t": target, "v": value]) { v, e in
+        guard var o = v as? [String: Any] else { return reply(err(e ?? "\(cmd) failed")) }
+        o["ok"] = true
+        b.wake()
+        self.settle(req) { reply(o) }
+      }
+    case "check", "uncheck":
+      guard let target = req["target"] as? String else { return reply(err("\(cmd) needs a target")) }
+      let want = cmd == "check"
+      b.evalHelper("return __shoji.checked(t)", ["t": target]) { v, e in
+        guard let isOn = v as? Bool else { return reply(err(e ?? "can't find \(target)")) }
+        if isOn == want { return reply(["ok": true, "checked": isOn, "changed": false]) }
+        self.handle(["cmd": "click", "target": target]) { r in
+          b.evalHelper("return __shoji.checked(t)", ["t": target]) { v2, _ in
+            var out = r
+            out["checked"] = v2 as? Bool ?? want
+            out["changed"] = true
+            reply(out)
+          }
+        }
+      }
+    case "console", "errors", "network":
+      let all = req["all"] as? Bool ?? false
+      var entries = b.logEntries(all: all)
+      switch cmd {
+      case "console":
+        entries = entries.filter { ["console", "error", "dialog"].contains($0["k"] as? String ?? "") || ($0["k"] as? String == "navigation" && all) }
+        if let lv = req["level"] as? String { entries = entries.filter { ($0["level"] as? String ?? "error") == lv || $0["k"] as? String == "error" && lv == "error" } }
+      case "errors":
+        entries = entries.filter { e in
+          let k = e["k"] as? String ?? ""
+          if k == "error" { return true }
+          if k == "console" { return e["level"] as? String == "error" }
+          if k == "network" { return e["failed"] as? Bool == true || ((e["status"] as? NSNumber)?.intValue ?? 0) >= 400 }
+          return false
+        }
+      default:
+        entries = entries.filter { $0["k"] as? String == "network" }
+        if req["failed"] as? Bool == true {
+          entries = entries.filter { $0["failed"] as? Bool == true || (($0["status"] as? NSNumber)?.intValue ?? 0) >= 400 }
+        }
+      }
+      if req["clear"] as? Bool == true { b.record(["k": "navigation", "url": "(cleared)"]) }
+      reply(["ok": true, "entries": entries, "url": b.web.url?.absoluteString ?? ""])
+    case "dialog":
+      let action = (req["action"] as? String ?? "accept").lowercased()
+      b.dialogAccept = action != "dismiss"
+      b.dialogText = req["text"] as? String
+      reply(["ok": true, "dialogs": b.dialogAccept ? "accept" + (b.dialogText.map { " with \"\($0)\"" } ?? "") : "dismiss"])
     case "mouse":
       guard let p = point(req) else { return reply(err("mouse needs x/y or col/row")) }
       let kinds: [String: MouseAction] = ["press": .press, "release": .release, "move": .move,
@@ -113,7 +174,11 @@ final class Controller {
       reply(["ok": true, "width": b.web.bounds.width, "height": b.web.bounds.height])
     case "screenshot":
       let path = req["path"] as? String ?? (NSTemporaryDirectory() + "shoji-\(Int(Date().timeIntervalSince1970)).png")
-      b.screenshot(to: path, scale: req["scale"] as? Double ?? 1, reply)
+      if req["full"] as? Bool == true {
+        b.screenshotFull(to: path, scale: req["scale"] as? Double ?? 1, reply)
+      } else {
+        b.screenshot(to: path, scale: req["scale"] as? Double ?? 1, reply)
+      }
     case "wait":
       let timeout = req["timeout"] as? Double ?? 10
       if let sel = req["selector"] as? String {
