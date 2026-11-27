@@ -1,8 +1,12 @@
 // Commands: one JSON object per line, one JSON reply per line. Used by Neovim
 // (over the job's stdin/stdout) and by agents (over a Unix socket, through
 // `shoji ctl`). See README for the command list.
+#if os(macOS)
 import AppKit
 import WebKit
+#else
+import Foundation
+#endif
 
 typealias Reply = ([String: Any]) -> Void
 
@@ -350,7 +354,7 @@ final class ControlServer {
 
   func start() -> Bool {
     unlink(path)
-    let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+    let fd = socket(AF_UNIX, sockStream, 0)
     guard fd >= 0, var addr = unixAddress(path) else { return false }
     let ok = withUnsafePointer(to: &addr) {
       $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
@@ -380,6 +384,13 @@ final class ControlServer {
     return true
   }
 }
+
+/// SOCK_STREAM is an enum in Glibc and an Int32 on Darwin.
+#if os(Linux)
+let sockStream = Int32(SOCK_STREAM.rawValue)
+#else
+let sockStream = SOCK_STREAM
+#endif
 
 func unixAddress(_ path: String) -> sockaddr_un? {
   var addr = sockaddr_un()

@@ -7,8 +7,13 @@
 //
 // Terminal keys: Ctrl+L address · Ctrl+R reload · Ctrl+B back · Ctrl+N forward · Ctrl+Q quit.
 // --offline blocks every request that isn't a local file. Nothing is stored.
+#if os(macOS)
 import AppKit
 import WebKit
+#else
+import Foundation
+import CShojiWPE
+#endif
 
 let argv = Array(CommandLine.arguments.dropFirst())
 
@@ -66,27 +71,33 @@ if argv.first == "ctl" {
 
 atexit { cleanupFrameFiles() }
 
+#if os(macOS)
 let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)   // no Dock icon, never steals focus
+#endif
 var keep: [AnyObject] = []             // keeps sources and readers alive
 var sources: [DispatchSourceProtocol] = []
 
-func compileOfflineRules(_ done: @escaping (WKContentRuleList?) -> Void) {
-  guard offline else { return done(nil) }
-  // Block everything, then allow local files and inline data.
-  let rules = """
+/// --offline: block everything, then allow local files and inline data.
+let offlineRulesJSON = """
   [{"trigger":{"url-filter":".*"},"action":{"type":"block"}},
    {"trigger":{"url-filter":"^file:"},"action":{"type":"ignore-previous-rules"}},
    {"trigger":{"url-filter":"^data:"},"action":{"type":"ignore-previous-rules"}},
    {"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}},
    {"trigger":{"url-filter":"^about:"},"action":{"type":"ignore-previous-rules"}}]
   """
+
+#if os(macOS)
+func compileOfflineRules(_ done: @escaping (WKContentRuleList?) -> Void) {
+  guard offline else { return done(nil) }
+  let rules = offlineRulesJSON
   WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "shoji-offline-v1",
                                                           encodedContentRuleList: rules) { list, error in
     guard let list = list else { fail("offline rules failed: \(String(describing: error))") }
     done(list)
   }
 }
+#endif
 
 func onSignals(_ sigs: [Int32], _ handler: @escaping () -> Void) {
   for sig in sigs {
@@ -109,7 +120,11 @@ let target = positional(argv).first
 if flag("--headless") {
   // MARK: headless, for agents
   let size = (option("--size") ?? "1280x800").split(separator: "x").compactMap { Double($0) }
+  #if os(macOS)
   let scale = Double(NSScreen.main?.backingScaleFactor ?? 2)
+  #else
+  let scale = 1.0                       // headless WPE draws at one device pixel per CSS pixel
+  #endif
   let display = HeadlessDisplay(width: Int((size.first ?? 1280) * scale), height: Int((size.last ?? 800) * scale))
   compileOfflineRules { rules in
     let b = Browser(display: display, offline: offline, rules: rules)
@@ -120,9 +135,19 @@ if flag("--headless") {
     if let t = target { b.load(t) }
     // quit when unused, so an agent's browser doesn't linger in memory
     let idle = Double(option("--idle-exit") ?? "30") ?? 30
+    #if os(macOS)
     Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
       if Date().timeIntervalSince(c.lastCommand) > idle * 60 { unlink(socketPath(name: name)); exit(0) }
     }
+    #else
+    let idleTimer = DispatchSource.makeTimerSource(queue: .main)
+    idleTimer.schedule(deadline: .now() + 30, repeating: 30)
+    idleTimer.setEventHandler {
+      if Date().timeIntervalSince(c.lastCommand) > idle * 60 { unlink(socketPath(name: name)); exit(0) }
+    }
+    idleTimer.resume()
+    sources.append(idleTimer)
+    #endif
     onSignals([SIGINT, SIGTERM, SIGHUP]) { unlink(socketPath(name: name)); exit(0) }
   }
 } else if flag("--embed") {
@@ -189,4 +214,8 @@ if flag("--headless") {
     onSignals([SIGINT, SIGTERM, SIGHUP]) { display.quit() }
   }
 }
+#if os(macOS)
 app.run()
+#else
+shoji_loop_run()
+#endif

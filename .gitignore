@@ -4,3 +4,4 @@
 dist/
 spikes/linux/out/
 spikes/linux/swiftcheck/.build/
+.build-linux/

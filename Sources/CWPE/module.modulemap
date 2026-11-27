@@ -1,0 +1,6 @@
+module CWPE [system] {
+  header "shim.h"
+  link "WPEWebKit-2.0"
+  link "png16"
+  export *
+}

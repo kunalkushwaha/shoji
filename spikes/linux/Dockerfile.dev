@@ -2,6 +2,6 @@
 FROM debian:testing
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       libwpewebkit-2.0-dev build-essential pkg-config python3 ca-certificates curl \
-      libpng-dev fonts-dejavu-core \
+      libpng-dev fonts-dejavu-core shared-mime-info \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src

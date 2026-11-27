@@ -1,6 +1,9 @@
 // The terminal side (standalone mode): raw mode, sizes, the top bar, and the
 // terminal's own input (address bar, mouse in pixels) turned into browser calls.
 import Foundation
+#if os(Linux)
+import CShojiWPE
+#endif
 
 final class Terminal {
   let fd: Int32
@@ -18,11 +21,18 @@ final class Terminal {
   }
 
   func refreshSize() {
+    #if os(Linux)
+    var r: Int32 = 0, c: Int32 = 0, xp: Int32 = 0, yp: Int32 = 0
+    if shoji_winsize(fd, &r, &c, &xp, &yp) == 0 {
+      rows = Int(r); cols = Int(c); pixelWidth = Int(xp); pixelHeight = Int(yp)
+    }
+    #else
     var ws = winsize()
     if ioctl(fd, TIOCGWINSZ, &ws) == 0 {
       rows = Int(ws.ws_row); cols = Int(ws.ws_col)
       pixelWidth = Int(ws.ws_xpixel); pixelHeight = Int(ws.ws_ypixel)
     }
+    #endif
   }
 
   func write(_ s: String) {
@@ -30,7 +40,11 @@ final class Terminal {
     data.withUnsafeBytes { buf in
       var off = 0
       while off < buf.count {
+        #if os(Linux)
+        let n = Glibc.write(fd, buf.baseAddress! + off, buf.count - off)
+        #else
         let n = Darwin.write(fd, buf.baseAddress! + off, buf.count - off)
+        #endif
         if n <= 0 { break }
         off += n
       }

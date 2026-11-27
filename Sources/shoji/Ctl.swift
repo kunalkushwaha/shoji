@@ -193,7 +193,7 @@ func formatEntry(_ e: [String: Any]) -> String {
 }
 
 func connectSocket(_ path: String) -> Int32 {
-  let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+  let fd = socket(AF_UNIX, sockStream, 0)
   guard fd >= 0, var addr = unixAddress(path) else { return -1 }
   let r = withUnsafePointer(to: &addr) {
     $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
@@ -206,6 +206,16 @@ func connectSocket(_ path: String) -> Int32 {
 /// this command and the shell that ran it.
 func startHeadless() {
   var exe = [CChar](repeating: 0, count: 4096)
+  #if os(Linux)
+  let n = readlink("/proc/self/exe", &exe, exe.count - 1)
+  if n > 0 { exe[n] = 0 }
+  var args = [String(cString: exe), "--headless", "--name", name]
+  if offline { args.append("--offline") }
+  var attr = posix_spawnattr_t()
+  posix_spawnattr_init(&attr)
+  posix_spawnattr_setflags(&attr, Int16(0x80))          // POSIX_SPAWN_SETSID (glibc 2.26+)
+  var actions = posix_spawn_file_actions_t()
+  #else
   var size = UInt32(exe.count)
   _NSGetExecutablePath(&exe, &size)
   var args = [String(cString: exe), "--headless", "--name", name]
@@ -214,12 +224,13 @@ func startHeadless() {
   posix_spawnattr_init(&attr)
   posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID))
   var actions = posix_spawn_file_actions_t(bitPattern: 0)
+  #endif
   posix_spawn_file_actions_init(&actions)
   for fd: Int32 in [0, 1, 2] {
     posix_spawn_file_actions_addopen(&actions, fd, "/dev/null", fd == 0 ? O_RDONLY : O_WRONLY, 0)
   }
   var cargs = args.map { strdup($0) } + [nil]
   var pid = pid_t()
-  posix_spawn(&pid, cargs[0], &actions, &attr, &cargs, environ)
+  posix_spawn(&pid, cargs[0]!, &actions, &attr, &cargs, environ)
   cargs.forEach { free($0) }
 }

@@ -1,6 +1,7 @@
 // The browser core: a live WKWebView in an off-screen window. It knows nothing
 // about terminals; frames go to a Display, input comes in through its API (from
 // the terminal UI, from Neovim, or from the control socket).
+#if os(macOS)
 import AppKit
 import WebKit
 
@@ -501,3 +502,4 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     }
   }
 }
+#endif
