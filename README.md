@@ -7,7 +7,8 @@ outside show through it. Here, web pages show through your terminal.
 
 ![shoji in Ghostty showing Wikipedia's "Shoji" article: the top bar with back, forward and reload and the address, and the live page below it](docs/screenshot.png)
 
-For terminals that speak the kitty graphics protocol: Ghostty, kitty, WezTerm. macOS for now.
+For terminals that speak the kitty graphics protocol: Ghostty, kitty, WezTerm. macOS; on Linux,
+the headless mode for agents (`shoji ctl`) runs on WPE WebKit — see [Linux](#linux).
 
 ```sh
 shoji https://example.com
@@ -110,8 +111,29 @@ inside a synchronized update, so nothing flickers and typing or hovering sends l
 Mouse reports (SGR with pixel coordinates) and keys become `NSEvent`s for the page.
 Measurements behind each choice: [docs/research.md](docs/research.md).
 
+## Linux
+
+`shoji ctl` and `shoji --headless` run on Linux with WPE WebKit 2.54+ (no Chrome), with the
+same commands and output; `tests/agent_test.py` and `tests/more_test.py` pass. Made for
+agents in containers:
+
+```sh
+docker build -t shoji .                      # Debian testing + WPE WebKit; --build-arg CJK=1 for CJK fonts
+docker run -d --name shoji shoji             # a headless browser
+docker exec shoji shoji ctl open https://example.com
+docker exec shoji shoji ctl snapshot
+```
+
+Or the binary (`scripts/dist-linux.sh` → `dist/shoji-*-linux-x86_64.tar.gz`) on Debian
+testing/sid or Arch, with `libwpewebkit-2.0-1 libgles2 shared-mime-info` (Arch: `wpewebkit`).
+Outside a container, keep WebKit's sandbox on; inside one, the image sets
+`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` (the container is the sandbox).
+
+Terminal mode and `--embed` build on Linux but aren't tested there yet. Numbers next to
+headless Chromium: [docs/performance.md](docs/performance.md#linux); how it's built:
+[docs/linux.md](docs/linux.md).
+
 ## Status
 
 Early prototype. Not yet: right-click menus, tabs, downloads, WebGL/video capture,
-hover inside Neovim, tmux, Linux (WPE WebKit — requirements and findings for whoever
-ports it: [docs/linux.md](docs/linux.md)).
+hover inside Neovim, tmux, terminal mode on Linux.

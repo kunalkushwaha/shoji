@@ -51,3 +51,38 @@ it can't see. Frame-level measurements are in [research.md](research.md).
   another app starting WebKit at the same moment would be counted too.
 - Chrome was measured headless with a fresh profile; a Chrome you already run for daily
   browsing would add only a renderer per tab (but it isn't in your terminal).
+
+## Linux
+
+Measured 2026-11-27 in Docker on x86_64 (Ryzen 7 PRO 7840U), shoji 0.2.0 on WPE WebKit
+2.54.3 next to Debian's Chromium 156 in headless mode, in the same container
+(`bench/Dockerfile.bench`, `bench/measure_linux.py`). Two runs; numbers moved by a few MB.
+
+Memory per page, summed over every process involved, after the page settled.
+**PSS** counts all memory, with shared pages split between the processes that use them;
+**own** is anonymous memory only (heaps, JIT, buffers) — closest to macOS's footprint,
+which leaves out library code.
+
+| Page | shoji PSS · own | headless Chromium PSS · own |
+|---|---|---|
+| tiny page (example.com) | **340 MB · 148 MB** · 3 processes | 411 MB · 160 MB · 9 processes |
+| Wikipedia article | **450 MB · 243 MB** · 3 processes | 479 MB · 215 MB · 9 processes |
+| local page with JavaScript | **327 MB · 139 MB** · 3 processes | 419 MB · 165 MB · 9 processes |
+
+| Disk | shoji | Chromium |
+|---|---|---|
+| Container image (Debian testing, fonts-dejavu) | **755 MB** · 287 MB download | 961 MB · 385 MB download |
+| Engine package | 127 MB (`libwpewebkit-2.0-1`) | 324 MB (`chromium`) |
+| Binary | 58 MB (Swift runtime linked in) · 22 MB tarball | — |
+
+Start → page loaded: 0.6 s (local page, tiny page), 2.0 s (Wikipedia, over the network).
+
+**Why the saving is smaller than on macOS.** On macOS, WebKit is part of the system and
+draws with the GPU; its libraries are shared with every app. In a container, WPE draws
+through Mesa's software GL (llvmpipe): LLVM and gallium are loaded in two processes and
+the web process holds ~80 MB of GL buffers and compiled shaders. WPE has no setting to
+draw without EGL (without Mesa it aborts: "Could not create EGL display"), and Mesa's
+simpler `softpipe` driver uses more memory (+150 MB). Chromium, in contrast, also renders
+in software here, so both pay for it. Where shoji clearly wins on Linux: a third of the
+processes, a smaller image, and no Node/Playwright needed to drive it.
+

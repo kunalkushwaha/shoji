@@ -227,6 +227,64 @@ Whole C spike, start to finish: 2.5 s (2 of them measuring rAF).
 5. Runtime size: `libwpewebkit-2.0-1` is ~127 MB installed (plus GLib, libsoup,
    GStreamer pulled in as dependencies — measure the final image).
 
+## Phase 1: done (2026-11-27)
+
+`shoji ctl` / `--headless` on Linux, same commands and output as macOS.
+
+- `tests/agent_test.py`: **38/38** on Linux (in the dev container and in the final image,
+  as a non-root user). `tests/more_test.py` (new, 20 checks — typing incl. Japanese, keys,
+  Tab, eval/promises/exceptions, scroll, wait, history, local files, screenshots and
+  colours, `--retina`, `target=_blank`, `--offline`): **20/20**.
+- `Dockerfile` (two stages: Swift build → plain `debian:testing` runtime), 755 MB on disk,
+  287 MB download. `scripts/dist-linux.sh` → 22 MB tarball, tested on a bare Debian
+  testing with only the runtime packages.
+- Numbers next to headless Chromium: [performance.md](performance.md#linux).
+
+### How it's built
+
+| | |
+|---|---|
+| `Sources/CShojiWPE/` | the engine in C (~400 lines): headless display, web view, scripts in both worlds, message handlers, dialogs, content filter, `create` → same view, input events, snapshots, PNG writer, GLib loop |
+| `Sources/CWPE/` | `systemLibrary`, `pkgConfig: "wpe-webkit-2.0"`; only a dependency on Linux (`TargetDependencyCondition`) |
+| `Sources/shoji/BrowserWPE.swift` | `#if os(Linux)`: the same API as the macOS `Browser` (incl. a `web` object with `url`, `title`, `isLoading`, `canGoBack`, `bounds`, `goBack()`, …), so `Controller`, the displays and the terminal UI compile unchanged |
+| shared files | `#if os(macOS)` guards only: imports, `NSApplication`, `NSScreen` scale, the idle `Timer`, `app.run()`, `_NSGetExecutablePath`, `ioctl`/`Darwin.write`, `SOCK_STREAM`. macOS code paths are unchanged (not compiled here — build on a Mac before merging) |
+
+**Main loop:** GLib's `GMainLoop` runs, and Dispatch's main queue is drained from it through
+libdispatch's eventfd (`_dispatch_get_main_queue_handle_4CF` /
+`_dispatch_main_queue_callback_4CF`, what CoreFoundation's run loop uses on Linux). So
+`DispatchQueue.main`, `asyncAfter` and every `DispatchSource` on `.main` work unchanged —
+the `Loop` abstraction proposed above wasn't needed (`spikes/linux/loopcheck`).
+
+### Found while porting
+
+1. **Runtime packages:** `libwpewebkit-2.0-1` doesn't pull in **`libgles2`** (the web process
+   aborts loading `libGLESv2.so.2`) or **`shared-mime-info`** (without it every local file is
+   shown as plain text).
+2. **Mesa is required:** WPE draws through EGL; without Mesa it aborts ("Could not create EGL
+   display"). In a container that's llvmpipe — most of the memory difference to macOS.
+3. **Scrolling:** a precise scroll event moves 2.5 CSS px per unit of delta, opposite in sign;
+   and a following "scroll stop" event makes WPE add momentum that flings the page to the
+   end. shoji sends delta/2.5, no stop event (measured exact for 60, 100, 400, −200 px).
+4. **Typing** non-ASCII text works as key events with Unicode keysyms (`0x01000000 + code
+   point`); Japanese arrives intact. Keycodes come from WPE's keymap.
+5. **Clicks are trusted** (`isTrusted=true`), and press counts give double clicks.
+6. `call_async_javascript_function` args: shoji passes them as `const` declarations in the
+   body (JSON), not as a `GVariant` dictionary — same effect as macOS's `arguments:`.
+7. **Swift**: `--static-swift-stdlib` makes the binary independent of a Swift install
+   (58 MB, most of it Foundation's ICU data).
+
+### Not done yet (phase 2 and loose ends)
+
+- **Build and run both test suites on a Mac** before merging `linux` (the shared files changed
+  only behind `#if`, but they haven't been compiled for macOS).
+- Terminal mode and `--embed` on Linux: they compile, and the frame loop uses
+  `webkit_web_view_get_snapshot` like macOS's `takeSnapshot`; untested in a real terminal.
+  Inline frames over SSH (requirement 9) not started.
+- WebKit's sandbox on a plain Linux host (Ubuntu 24.04 restricts unprivileged user namespaces).
+- `arm64` image (Debian testing has WPE 2.54 for arm64; untested).
+- Debug-log lines for messages from iframes don't carry the frame's address yet (WPE's
+  script-message signal has no frame info).
+
 ## Test plan
 
 - `python3 tests/agent_test.py /path/to/shoji` in the container (all 38 checks).

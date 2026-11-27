@@ -1,0 +1,6 @@
+.build
+.build-linux
+.git
+spikes
+dist
+docs/screenshot.png

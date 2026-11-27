@@ -1,0 +1,9 @@
+# shoji's image plus Debian's Chromium and Python, to compare them in the same container.
+FROM shoji
+USER root
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends chromium python3 procps \
+    && rm -rf /var/lib/apt/lists/*
+COPY bench /bench
+USER shoji
+ENTRYPOINT ["python3", "-I", "/bench/measure_linux.py"]
+CMD []
