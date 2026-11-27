@@ -247,7 +247,7 @@ Whole C spike, start to finish: 2.5 s (2 of them measuring rAF).
 | `Sources/CShojiWPE/` | the engine in C (~400 lines): headless display, web view, scripts in both worlds, message handlers, dialogs, content filter, `create` → same view, input events, snapshots, PNG writer, GLib loop |
 | `Sources/CWPE/` | `systemLibrary`, `pkgConfig: "wpe-webkit-2.0"`; only a dependency on Linux (`TargetDependencyCondition`) |
 | `Sources/shoji/BrowserWPE.swift` | `#if os(Linux)`: the same API as the macOS `Browser` (incl. a `web` object with `url`, `title`, `isLoading`, `canGoBack`, `bounds`, `goBack()`, …), so `Controller`, the displays and the terminal UI compile unchanged |
-| shared files | `#if os(macOS)` guards only: imports, `NSApplication`, `NSScreen` scale, the idle `Timer`, `app.run()`, `_NSGetExecutablePath`, `ioctl`/`Darwin.write`, `SOCK_STREAM`. macOS code paths are unchanged (not compiled here — build on a Mac before merging) |
+| shared files | `#if os(macOS)` guards only: imports, `NSApplication`, `NSScreen` scale, the idle `Timer`, `app.run()`, `_NSGetExecutablePath`, `ioctl`/`Darwin.write`, `SOCK_STREAM`. macOS code paths are unchanged. Built and tested on a Mac at 86ca865 (see below) |
 
 **Main loop:** GLib's `GMainLoop` runs, and Dispatch's main queue is drained from it through
 libdispatch's eventfd (`_dispatch_get_main_queue_handle_4CF` /
@@ -283,12 +283,11 @@ frames must be `a=f` row updates.
 - **Inline frames (requirement 9), shared code:** at start `TerminalDisplay.probe()` asks
   the terminal to load a 1x1 image from a temp file (`a=q,t=t`). `OK` → temp files as
   before; an error (SSH, shoji in a container, a sandboxed terminal) → `t=d` inline, in
-  4096-byte chunks (`m=1`), zlib-compressed on Linux (`o=z`; macOS sends uncompressed for
-  now). No reply in 1 s → temp files. `SHOJI_FRAMES=inline|file` overrides. The input
+  4096-byte chunks (`m=1`), zlib-compressed (`o=z`; on macOS Foundation's raw DEFLATE plus
+  zlib's header and Adler-32 trailer). No reply in 1 s → temp files. `SHOJI_FRAMES=inline|file` overrides. The input
   parser now passes kitty replies on (`InputEvent.reply`) instead of dropping them.
   On the test page, 10–12 MB of pixels went as 0.1 MB.
-- **`docker run -t` gives the tty rows and columns but no pixel size** (0x0). On Linux,
-  shoji then asks the terminal (`CSI 14 t` → `CSI 4;h;w t`) at start and after each resize.
+- **`docker run -t` gives the tty rows and columns but no pixel size** (0x0). shoji then asks the terminal (`CSI 14 t` → `CSI 4;h;w t`) at start and after each resize.
 - **Real terminal:** works in Ghostty (snap) on Ubuntu 24.04 at 125% scaling, with
   `docker run --rm -it -e SHOJI_SCALE=1.25 shoji <url>` — frames inline from the
   container (confirmed by Kunal, 2026-11-27).
@@ -297,13 +296,14 @@ frames must be `a=f` row updates.
   the engine scales mouse positions and scroll deltas (both are device pixels in WPE).
   Linux has no reliable way to read the screen's scale from inside a terminal.
 
+- **macOS check (2026-11-27):** the `linux` branch built on an Apple Silicon Mac (macOS
+  27.2.1, Swift 6.4.2, Command Line Tools). agent_test, more_test and terminal_test all
+  pass (terminal_test in 66 s). The first run found two Linux-only terminal paths (the
+  pixel-size query and zlib inline frames), now shared — fixed in 86ca865.
+
 ### Not done yet
 
-- **Build and run the test suites on a Mac** before merging `linux` (shared files changed:
-  `#if` guards, plus the inline transport, the reply event and the probe in `Display.swift`,
-  `Input.swift`, `Terminal.swift`, `main.swift` — Foundation only, but not compiled for macOS).
 - `--embed` (Neovim) on Linux, and inline frames for it (its frames go through Neovim).
-- zlib for inline frames on macOS (`Compression` gives raw deflate; needs the zlib wrapper).
 - WebKit's sandbox on a plain Linux host (Ubuntu 24.04 restricts unprivileged user namespaces).
 - `arm64` image.
 - Messages from iframes don't carry the frame's address in the log yet.
