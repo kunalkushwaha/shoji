@@ -30,7 +30,31 @@ func log(_ s: String) {
 
 enum MouseAction { case press, release, move, wheelUp, wheelDown }
 
-final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
+/// Tells us when a text field gains or loses focus (in every frame), so the
+/// Neovim side can send keys to the page only while you're typing in one.
+private let focusScript = """
+(function () {
+  function editable(e) {
+    if (!e) return false;
+    if (e.isContentEditable) return true;
+    if (e.tagName === 'TEXTAREA' || e.tagName === 'SELECT') return true;
+    if (e.tagName !== 'INPUT') return false;
+    return !/^(button|submit|reset|checkbox|radio|image|file|range|color|hidden)$/i.test(e.type || '');
+  }
+  let last = null;
+  function report() {
+    const now = editable(document.activeElement);
+    if (now === last) return;
+    last = now;
+    try { window.webkit.messageHandlers.wktermFocus.postMessage(now); } catch (e) {}
+  }
+  document.addEventListener('focusin', report, true);
+  document.addEventListener('focusout', () => setTimeout(report, 0), true);
+  window.addEventListener('pageshow', report);
+})();
+"""
+
+final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessageHandler {
   let display: Display
   let offline: Bool
   let scale: Double
@@ -60,11 +84,14 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
     let config = WKWebViewConfiguration()
     config.websiteDataStore = .nonPersistent()          // private by default
     if let rules = rules { config.userContentController.add(rules) }
+    config.userContentController.addUserScript(WKUserScript(source: focusScript, injectionTime: .atDocumentStart,
+                                                            forMainFrameOnly: false))
     web = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: config)
     super.init()
     web.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
     web.navigationDelegate = self
     web.uiDelegate = self
+    config.userContentController.add(self, name: "wktermFocus")
     Browser.keepAliveOffScreen(web)
     window.contentView = web
     window.acceptsMouseMovedEvents = true
@@ -351,6 +378,13 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
   }
 
   // MARK: WebKit delegates
+
+  func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+    if message.name == "wktermFocus", let editable = message.body as? Bool {
+      log("focus editable=\(editable)")
+      display.focusChanged(editable: editable)
+    }
+  }
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     log("loaded \(webView.url?.absoluteString ?? "") \"\(webView.title ?? "")\"")

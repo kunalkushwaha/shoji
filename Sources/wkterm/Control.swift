@@ -29,6 +29,8 @@ final class Controller {
     case "forward": b.web.goForward(); afterNavigation(req, reply)
     case "reload": b.web.reload(); afterNavigation(req, reply)
     case "stop": b.web.stopLoading(); reply(["ok": true])
+    case "blur":
+      evalJS("if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); return true", reply) { _ in ["ok": true] }
     case "status": status(reply)
     case "text":
       let sel = req["selector"] as? String

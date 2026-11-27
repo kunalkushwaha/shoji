@@ -13,6 +13,12 @@ protocol Display: AnyObject {
   func showFrame(rgba: UnsafeRawBufferPointer, width: Int, height: Int, changedRows: Range<Int>) -> Bool
   func resetFrame()
   func status(title: String, url: String, loading: Bool)
+  /// A text field (input, textarea, contenteditable) gained or lost focus.
+  func focusChanged(editable: Bool)
+}
+
+extension Display {
+  func focusChanged(editable: Bool) {}
 }
 
 /// Builds kitty graphics commands for one image: created once, then only the
@@ -88,6 +94,11 @@ final class EmbedDisplay: Display {
 
   func status(title: String, url: String, loading: Bool) {
     Output.event(["status": ["title": title, "url": url, "loading": loading]])
+  }
+
+  /// Neovim sends keys to the page only while a text field has focus.
+  func focusChanged(editable: Bool) {
+    Output.event(["focus": ["editable": editable]])
   }
 }
 
