@@ -33,6 +33,27 @@ func fail(_ s: String) -> Never {
   exit(1)
 }
 
+let version = "0.1.0"
+if flag("--version") || flag("-v") { print("shoji \(version)"); exit(0) }
+if flag("--help") || flag("-h") {
+  print("""
+  shoji \(version) — a WebKit browser in your terminal (kitty graphics: Ghostty, kitty, WezTerm)
+
+    shoji <url | file> [--offline]              browse in this terminal
+    shoji ctl <command> [args]                  drive a headless browser (for agents)
+    shoji --headless [url] [--offline]          the headless browser itself
+    shoji --embed --image-id ID [url]           inside Neovim (JSON lines on stdin/stdout)
+
+  ctl commands: open, text, html, click, type, key, scroll, eval, screenshot, wait,
+                status, back, forward, reload, quit       (shoji ctl with no command: usage)
+  options:      --offline  block every non-local request · --name N  separate browsers
+                --json     raw replies (ctl)
+
+  Keys (terminal): Ctrl+L address · Ctrl+R reload · Ctrl+B/N back/forward · Ctrl+Q quit
+  """)
+  exit(0)
+}
+
 let name = option("--name") ?? "default"
 let offline = flag("--offline")
 

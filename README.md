@@ -8,9 +8,28 @@ outside show through it. Here, web pages show through your terminal.
 For terminals that speak the kitty graphics protocol: Ghostty, kitty, WezTerm. macOS for now.
 
 ```sh
+shoji https://example.com
+shoji ./report.html --offline
+```
+
+## Install
+
+Needs macOS 13+ and a terminal with the kitty graphics protocol (Ghostty, kitty, WezTerm).
+
+From a release (one universal binary for Apple Silicon and Intel):
+
+```sh
+gh release download --repo kunalkushwaha/shoji --pattern '*.tar.gz'
+tar -xzf shoji-*-macos-universal.tar.gz
+install shoji-*/shoji ~/.local/bin/        # or anywhere on your PATH
+```
+
+From source (Xcode's Swift; no other dependencies):
+
+```sh
+git clone https://github.com/kunalkushwaha/shoji && cd shoji
 swift build -c release
-.build/release/shoji https://example.com
-.build/release/shoji ./report.html --offline
+ln -s "$PWD/.build/release/shoji" ~/.local/bin/shoji
 ```
 
 The page is live: scripts and animations run, and you click, scroll, hover and type into
