@@ -45,7 +45,7 @@ final class KittyImage {
     let stride = width * 4
     let slice = UnsafeRawBufferPointer(rebasing: rgba[(band.lowerBound * stride)..<(band.upperBound * stride)])
     seq += 1
-    let path = "/tmp/tty-graphics-protocol-wkterm-\(pid)-\(id)-\(seq % 8).rgba"
+    let path = "/tmp/tty-graphics-protocol-shoji-\(pid)-\(id)-\(seq % 8).rgba"
     guard FileManager.default.createFile(atPath: path, contents: Data(slice)) else { return nil }
     let file = Data(path.utf8).base64EncodedString()
     var out = "\u{1b}[?2026h"
@@ -116,7 +116,7 @@ final class HeadlessDisplay: Display {
 
 /// Remove this process's frame files the terminal hasn't read (on exit).
 func cleanupFrameFiles() {
-  let prefix = "tty-graphics-protocol-wkterm-\(getpid())-"
+  let prefix = "tty-graphics-protocol-shoji-\(getpid())-"
   for f in (try? FileManager.default.contentsOfDirectory(atPath: "/tmp")) ?? [] where f.hasPrefix(prefix) {
     try? FileManager.default.removeItem(atPath: "/tmp/" + f)
   }

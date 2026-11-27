@@ -1,6 +1,6 @@
 // Commands: one JSON object per line, one JSON reply per line. Used by Neovim
 // (over the job's stdin/stdout) and by agents (over a Unix socket, through
-// `wkterm ctl`). See README for the command list.
+// `shoji ctl`). See README for the command list.
 import AppKit
 import WebKit
 
@@ -112,7 +112,7 @@ final class Controller {
       b.resized()
       reply(["ok": true, "width": b.web.bounds.width, "height": b.web.bounds.height])
     case "screenshot":
-      let path = req["path"] as? String ?? (NSTemporaryDirectory() + "wkterm-\(Int(Date().timeIntervalSince1970)).png")
+      let path = req["path"] as? String ?? (NSTemporaryDirectory() + "shoji-\(Int(Date().timeIntervalSince1970)).png")
       b.screenshot(to: path, scale: req["scale"] as? Double ?? 1, reply)
     case "wait":
       let timeout = req["timeout"] as? Double ?? 10
@@ -329,5 +329,5 @@ func unixAddress(_ path: String) -> sockaddr_un? {
 }
 
 func socketPath(name: String) -> String {
-  NSTemporaryDirectory() + "wkterm-\(name).sock"
+  NSTemporaryDirectory() + "shoji-\(name).sock"
 }

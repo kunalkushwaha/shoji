@@ -1,9 +1,9 @@
-// wkterm: a WebKit browser drawn in a kitty-graphics terminal (Ghostty, kitty, WezTerm).
+// shoji: a WebKit browser drawn in a kitty-graphics terminal (Ghostty, kitty, WezTerm).
 //
-//   wkterm <url | file> [--offline] [--name N]       browse in this terminal
-//   wkterm --headless [url] [--offline] [--name N]    no display: driven by `wkterm ctl`
-//   wkterm --embed --image-id ID [--offline] [url]    inside Neovim (JSON lines on stdin/stdout)
-//   wkterm ctl [--name N] [--offline] [--json] <command> [args]
+//   shoji <url | file> [--offline] [--name N]       browse in this terminal
+//   shoji --headless [url] [--offline] [--name N]    no display: driven by `shoji ctl`
+//   shoji --embed --image-id ID [--offline] [url]    inside Neovim (JSON lines on stdin/stdout)
+//   shoji ctl [--name N] [--offline] [--json] <command> [args]
 //
 // Terminal keys: Ctrl+L address · Ctrl+R reload · Ctrl+B back · Ctrl+N forward · Ctrl+Q quit.
 // --offline blocks every request that isn't a local file. Nothing is stored.
@@ -59,7 +59,7 @@ func compileOfflineRules(_ done: @escaping (WKContentRuleList?) -> Void) {
    {"trigger":{"url-filter":"^blob:"},"action":{"type":"ignore-previous-rules"}},
    {"trigger":{"url-filter":"^about:"},"action":{"type":"ignore-previous-rules"}}]
   """
-  WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "wkterm-offline-v1",
+  WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "shoji-offline-v1",
                                                           encodedContentRuleList: rules) { list, error in
     guard let list = list else { fail("offline rules failed: \(String(describing: error))") }
     done(list)
@@ -124,7 +124,7 @@ if flag("--headless") {
       exit(0)                                   // Neovim closed the job
     })
     keep.append(reader)
-    // agents can drive the page you're looking at: wkterm ctl --name <name> …
+    // agents can drive the page you're looking at: shoji ctl --name <name> …
     if option("--name") != nil { serveControl(c) }
     if let t = target { b.load(t) }
     Output.event(["ready": true])
@@ -132,7 +132,7 @@ if flag("--headless") {
   }
 } else {
   // MARK: in this terminal
-  guard let term = Terminal() else { fail("wkterm needs a terminal") }
+  guard let term = Terminal() else { fail("shoji needs a terminal") }
   let display = TerminalDisplay(term: term)
   display.offline = offline
   // test hook: --exit-after=SECONDS quits on its own

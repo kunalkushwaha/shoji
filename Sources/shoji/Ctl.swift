@@ -1,16 +1,16 @@
-// `wkterm ctl`: drive a browser from the shell (made for coding agents).
+// `shoji ctl`: drive a browser from the shell (made for coding agents).
 //
-//   wkterm ctl open <url|file>         load, wait, print title and address
-//   wkterm ctl text [selector]         the page's (or an element's) text
-//   wkterm ctl html [selector]
-//   wkterm ctl click <selector>        or: click <x> <y>   (CSS pixels)
-//   wkterm ctl type <text>             into the focused element
-//   wkterm ctl key <Enter|Tab|Escape|Backspace|Up|Down|PageDown|…>
-//   wkterm ctl scroll <px|top|bottom>  (default: one screen down)
-//   wkterm ctl eval <js>               value of the last expression, as JSON
-//   wkterm ctl screenshot [file.png] [--retina]
-//   wkterm ctl wait [selector] [--timeout S]
-//   wkterm ctl status | back | forward | reload | quit
+//   shoji ctl open <url|file>         load, wait, print title and address
+//   shoji ctl text [selector]         the page's (or an element's) text
+//   shoji ctl html [selector]
+//   shoji ctl click <selector>        or: click <x> <y>   (CSS pixels)
+//   shoji ctl type <text>             into the focused element
+//   shoji ctl key <Enter|Tab|Escape|Backspace|Up|Down|PageDown|…>
+//   shoji ctl scroll <px|top|bottom>  (default: one screen down)
+//   shoji ctl eval <js>               value of the last expression, as JSON
+//   shoji ctl screenshot [file.png] [--retina]
+//   shoji ctl wait [selector] [--timeout S]
+//   shoji ctl status | back | forward | reload | quit
 //
 // A headless browser is started on first use (one per --name; it quits after
 // 30 idle minutes). --offline applies when it's started. --json prints replies raw.
@@ -18,7 +18,7 @@ import Foundation
 
 func runControlClient(_ args: [String]) -> Never {
   let rest = positional(args)
-  guard let cmd = rest.first else { fail("usage: wkterm ctl <open|text|click|type|key|scroll|eval|screenshot|wait|status|…> [args]") }
+  guard let cmd = rest.first else { fail("usage: shoji ctl <open|text|click|type|key|scroll|eval|screenshot|wait|status|…> [args]") }
   let a = Array(rest.dropFirst())
   let raw = args.contains("--json")
   var req: [String: Any] = ["cmd": cmd]
@@ -64,11 +64,11 @@ func runControlClient(_ args: [String]) -> Never {
   let path = socketPath(name: name)
   var fd = connectSocket(path)
   if fd < 0 {
-    if cmd == "quit" || cmd == "status" && args.contains("--no-start") { fail("no wkterm running (name \(name))") }
+    if cmd == "quit" || cmd == "status" && args.contains("--no-start") { fail("no shoji running (name \(name))") }
     startHeadless()
     let deadline = Date().addingTimeInterval(8)
     while fd < 0 && Date() < deadline { usleep(100_000); fd = connectSocket(path) }
-    if fd < 0 { fail("couldn't start a headless wkterm") }
+    if fd < 0 { fail("couldn't start a headless shoji") }
   }
   if cmd == "start" { print("running (\(path))"); exit(0) }
 
@@ -124,7 +124,7 @@ func connectSocket(_ path: String) -> Int32 {
   return fd
 }
 
-/// Start `wkterm --headless` detached (own session, no terminal), so it outlives
+/// Start `shoji --headless` detached (own session, no terminal), so it outlives
 /// this command and the shell that ran it.
 func startHeadless() {
   var exe = [CChar](repeating: 0, count: 4096)

@@ -74,7 +74,7 @@ Synthetic `NSEvent`s into the off-screen window (made key-capable by overriding
 
 ## 5. Prototype end to end
 
-`wkterm /tmp/anim.html --offline` in a 122×38 Ghostty window: page sized from the
+`shoji /tmp/anim.html --offline` in a 122×38 Ghostty window: page sized from the
 terminal's pixel size (976×629 pt at 2×), loaded in 0.23 s, **29 fps** sustained on an
 animated page, frames sent only when the page changed.
 
@@ -84,7 +84,7 @@ Re-sending an image id deletes its placements before the new data is shown (kitt
 Ghostty `graphics_storage.zig` `addImage`), so it can flicker. Ghostty 1.4 implements
 animation frames, and **`a=f,r=1,X=1,x,y,s,v` edits the root frame in place** keeping the
 placement. Probed: create `a=T` → OK, edit a 400×50 band → OK; synchronized output
-(`?2026`) supported. wkterm now creates the image once and writes only the changed rows
+(`?2026`) supported. shoji now creates the image once and writes only the changed rows
 (row-by-row diff of successive snapshots) inside `?2026`. On the animated test page:
 1 full frame + 185 partial, 29 fps, average band 369 of 1258 rows.
 
@@ -127,7 +127,7 @@ placement. Probed: create `a=T` → OK, edit a 400×50 band → OK; synchronized
 | Bun.WebView | WKWebView | `shmem` screenshots for kitty | a runtime API, not a browser |
 | Mux | WPE | kitty | unfinished |
 
-**Where wkterm differs:** Ghostty-first, offline mode enforced by WebKit, private by
+**Where shoji differs:** Ghostty-first, offline mode enforced by WebKit, private by
 default, partial in-place updates, and (planned) agent control and use inside Neovim.
 
 ### Linux

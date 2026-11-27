@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-  name: "wkterm",
+  name: "shoji",
   platforms: [.macOS(.v13)],
   targets: [
     .executableTarget(
-      name: "wkterm",
-      path: "Sources/wkterm",
+      name: "shoji",
+      path: "Sources/shoji",
       swiftSettings: [.unsafeFlags(["-swift-version", "5"])]
     )
   ]

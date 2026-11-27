@@ -17,9 +17,9 @@ final class PageWindow: NSWindow {
   override var screen: NSScreen? { NSScreen.main }
 }
 
-/// Debug log, only when WKTERM_LOG=<file> is set.
+/// Debug log, only when SHOJI_LOG=<file> is set.
 let debugLog: FileHandle? = {
-  guard let p = ProcessInfo.processInfo.environment["WKTERM_LOG"] else { return nil }
+  guard let p = ProcessInfo.processInfo.environment["SHOJI_LOG"] else { return nil }
   FileManager.default.createFile(atPath: p, contents: nil)
   return FileHandle(forWritingAtPath: p)
 }()
@@ -46,7 +46,7 @@ private let focusScript = """
     const now = editable(document.activeElement);
     if (now === last) return;
     last = now;
-    try { window.webkit.messageHandlers.wktermFocus.postMessage(now); } catch (e) {}
+    try { window.webkit.messageHandlers.shojiFocus.postMessage(now); } catch (e) {}
   }
   document.addEventListener('focusin', report, true);
   document.addEventListener('focusout', () => setTimeout(report, 0), true);
@@ -91,7 +91,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     web.customUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
     web.navigationDelegate = self
     web.uiDelegate = self
-    config.userContentController.add(self, name: "wktermFocus")
+    config.userContentController.add(self, name: "shojiFocus")
     Browser.keepAliveOffScreen(web)
     window.contentView = web
     window.acceptsMouseMovedEvents = true
@@ -380,7 +380,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
   // MARK: WebKit delegates
 
   func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-    if message.name == "wktermFocus", let editable = message.body as? Bool {
+    if message.name == "shojiFocus", let editable = message.body as? Bool {
       log("focus editable=\(editable)")
       display.focusChanged(editable: editable)
     }

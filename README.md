@@ -1,12 +1,16 @@
-# wkterm
+# shoji
 
 **A real web browser in your terminal, drawn by WebKit — no Chrome.**
+
+*Shoji* (障子) is the translucent paper screen in a wooden frame: the light and the world
+outside show through it. Here, web pages show through your terminal.
+
 For terminals that speak the kitty graphics protocol: Ghostty, kitty, WezTerm. macOS for now.
 
 ```sh
 swift build -c release
-.build/release/wkterm https://example.com
-.build/release/wkterm ./report.html --offline
+.build/release/shoji https://example.com
+.build/release/shoji ./report.html --offline
 ```
 
 The page is live: scripts and animations run, and you click, scroll, hover and type into
@@ -21,20 +25,20 @@ it with the mouse and keyboard. Frames are sent only when the page changes.
 
 The top bar's ◀ ▶ ⟳ are clickable; click the address to edit it.
 
-## For agents: `wkterm ctl`
+## For agents: `shoji ctl`
 
 Drive a page from the shell — made for coding agents like Claude Code, which can then
 read what a page says and look at it:
 
 ```sh
-wkterm ctl open ./index.html          # starts a headless browser on first use, waits for the load
-wkterm ctl click "#email"             # by CSS selector (or: click <x> <y>)
-wkterm ctl type "me@example.com"
-wkterm ctl key Enter
-wkterm ctl text "#msg"                # the page's (or an element's) text
-wkterm ctl eval "document.title"      # any JavaScript, result as JSON
-wkterm ctl screenshot /tmp/page.png   # what's in view, as a PNG
-wkterm ctl scroll bottom · status · back · wait "#loaded" · quit
+shoji ctl open ./index.html          # starts a headless browser on first use, waits for the load
+shoji ctl click "#email"             # by CSS selector (or: click <x> <y>)
+shoji ctl type "me@example.com"
+shoji ctl key Enter
+shoji ctl text "#msg"                # the page's (or an element's) text
+shoji ctl eval "document.title"      # any JavaScript, result as JSON
+shoji ctl screenshot /tmp/page.png   # what's in view, as a PNG
+shoji ctl scroll bottom · status · back · wait "#loaded" · quit
 ```
 
 The headless browser quits after 30 idle minutes. `--name` keeps several apart;
@@ -42,10 +46,10 @@ The headless browser quits after 30 idle minutes. `--name` keeps several apart;
 
 ## Inside Neovim
 
-`wkterm --embed` draws a live page in a Neovim window through unicode placeholders
+`shoji --embed` draws a live page in a Neovim window through unicode placeholders
 (the window's buffer holds the placeholder grid; frames reach the terminal through
-`nvim_ui_send`). The Neovim side lives in the dotfiles (`Space m w` / `:Wkterm`). An
-embedded page also answers `wkterm ctl --name <buffer's b:wkterm>`, so an agent can
+`nvim_ui_send`). The Neovim side lives in the dotfiles (`Space m w` / `:Shoji`). An
+embedded page also answers `shoji ctl --name <buffer's b:shoji>`, so an agent can
 read and drive the very page you're looking at.
 
 **Private:** nothing is stored between runs. **`--offline`:** every request that isn't a
