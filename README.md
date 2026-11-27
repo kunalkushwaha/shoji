@@ -138,12 +138,13 @@ docker run --rm -it -e SHOJI_SCALE=2 shoji …    # HiDPI screen: its scale (1.2
 
 The terminal can't read files inside the container, so frames go inline through the
 terminal stream (zlib-compressed); the same happens over SSH. shoji finds out at start by
-asking the terminal; `SHOJI_FRAMES=inline|file` decides instead. `--embed` builds on Linux
-but isn't tested there yet. Numbers next to
+asking the terminal; `SHOJI_FRAMES=inline|file` decides instead. `--embed` (Neovim) works
+on Linux too; with Neovim over SSH or shoji in a container, start Neovim with
+`SHOJI_FRAMES=inline`. Numbers next to
 headless Chromium: [docs/performance.md](docs/performance.md#linux); how it's built:
 [docs/linux.md](docs/linux.md).
 
 ## Status
 
 Early prototype. Not yet: right-click menus, tabs, downloads, WebGL/video capture,
-hover inside Neovim, tmux, `--embed` on Linux, inline frames for `--embed` over SSH.
+hover inside Neovim, tmux. Linux: WebKit's sandbox is off in the Docker image.

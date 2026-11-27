@@ -1,7 +1,7 @@
 """More of shoji's agent commands than agent_test.py covers: typing and keys (also
 non-ASCII), scrolling, history, eval, wait, local files, screenshots and --offline.
 Run: python3 -I tests/more_test.py [shoji]"""
-import http.server, json, os, shutil, struct, subprocess, sys, tempfile, threading, functools, zlib
+import http.server, json, os, shutil, struct, subprocess, sys, tempfile, threading, functools, zlib, time
 
 SHOJI = sys.argv[1] if len(sys.argv) > 1 else shutil.which("shoji")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -110,6 +110,21 @@ try:
     retina = os.path.join(tmp, "retina.png")
     ctl("screenshot", retina, "--retina")
     check("screenshot --retina: twice the size", png_size(retina) == (2 * w, 2 * h), (png_size(retina), w, h))
+
+    with open(os.path.join(tmp, "inner.html"), "w") as f:
+        f.write("<script>console.log('hello from the frame')</script>")
+    outer = os.path.join(tmp, "outer.html")
+    with open(outer, "w") as f:
+        f.write("<title>Outer</title><script>console.log('hello from the top')</script><iframe src='inner.html'></iframe>")
+    ctl("open", outer)
+    ctl("wait", "iframe")
+    time.sleep(0.5)
+    con = ctl("console")
+    lines = con.splitlines()
+    top = [l for l in lines if "hello from the top" in l]
+    inner = [l for l in lines if "hello from the frame" in l]
+    check("console from an iframe names the frame", inner and "in frame" in inner[0] and "inner.html" in inner[0], con)
+    check("console from the page itself has no frame", top and "in frame" not in top[0], con)
 
     blank = os.path.join(tmp, "blank.html")
     with open(blank, "w") as f:

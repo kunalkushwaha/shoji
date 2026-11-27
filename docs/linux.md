@@ -301,12 +301,35 @@ frames must be `a=f` row updates.
   pass (terminal_test in 66 s). The first run found two Linux-only terminal paths (the
   pixel-size query and zlib inline frames), now shared — fixed in 86ca865.
 
+- **`--embed` (Neovim):** `tests/embed_test.py` plays Neovim's side of the JSON-lines
+  protocol (as `nvim/init.lua` in the dotfiles does) and decodes the graphics commands
+  Neovim would pass on: ready/resize, unicode-placeholder placement over the window's
+  cells, status and focus events, col/row clicks, typing (incl. Japanese), changed-row
+  updates, scrolling, the wheel, `shoji ctl --name` on the embedded page, and the image
+  removed when Neovim closes the job. All pass on Linux with temp files, with
+  `SHOJI_FRAMES=inline` (now honoured by `--embed`: zlib inline frames for Neovim over SSH
+  or shoji in a container) and at `SHOJI_SCALE=2`. Not tried with a real Neovim here:
+  this machine's Neovim (0.9.5) predates `nvim_ui_send`.
+- **Messages from iframes** now name their frame in the log (`(in frame …)`), as on
+  macOS. WPE's script messages carry no frame info, so the page script adds
+  `location.href` itself when it runs inside a frame (more_test checks it).
+- **Where it runs (2026-11-27):** WPE WebKit 2.54 with the 2.0 API is packaged by Debian
+  testing/sid and Arch only. Ubuntu 26.04 and Fedora 45 don't package WPE at all,
+  Debian 13 has 2.48. The tarball's binary also needs glibc 2.43 (Debian testing), so
+  elsewhere use the Docker image.
+- **WebKit's sandbox on a host:** Ubuntu 24.04+ blocks unprivileged user namespaces
+  (`kernel.apparmor_restrict_unprivileged_userns = 1`): on this Ubuntu 24.04 machine both
+  `bwrap --unshare-user` and `unshare -Ur` are refused, so WebKit's bubblewrap sandbox
+  can't start without an AppArmor profile granting `userns` (as Ubuntu ships for
+  Chrome and Epiphany). In Docker the same restriction (plus Docker's seccomp and masked
+  /proc) is why the image turns the sandbox off.
+
 ### Not done yet
 
-- `--embed` (Neovim) on Linux, and inline frames for it (its frames go through Neovim).
-- WebKit's sandbox on a plain Linux host (Ubuntu 24.04 restricts unprivileged user namespaces).
-- `arm64` image.
-- Messages from iframes don't carry the frame's address in the log yet.
+- WebKit's sandbox on a Debian testing or Arch host (no Ubuntu-style restriction there,
+  so it should start as is; not yet run outside Docker), and an AppArmor profile for
+  Ubuntu hosts.
+- `arm64` image (this machine has no arm64 emulation registered for Docker).
 
 ## Test plan
 

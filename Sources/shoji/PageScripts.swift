@@ -43,7 +43,9 @@ let pageWorldScript = """
   ['animationstart', 'animationiteration', 'transitionstart', 'transitionrun', 'load', 'resize'].forEach(t => window.addEventListener(t, changed, true));
 
   // --- console, errors, network (for agents: shoji ctl console / errors / network)
-  const log = o => post('shojiLog', o);
+  // inside an iframe, say which one (macOS also knows from the message's frame info; WPE doesn't)
+  const inFrame = (() => { try { return window !== window.top; } catch (e) { return true; } })();
+  const log = o => post('shojiLog', inFrame ? Object.assign({ frame: location.href }, o) : o);
   const fmt = v => {
     if (typeof v === 'string') return v;
     if (v instanceof Error) return v.name + ': ' + v.message + (v.stack ? ' @ ' + String(v.stack).split('\\n')[0] : '');

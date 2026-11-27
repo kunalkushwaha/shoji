@@ -111,7 +111,13 @@ final class EmbedDisplay: Display {
     ready ? (Int(Double(cols) * cellWidth), Int(Double(rows) * cellHeight)) : (1280, 800)
   }
 
-  init(imageId: Int) { image = KittyImage(id: imageId, virtual: true) }
+  init(imageId: Int) {
+    image = KittyImage(id: imageId, virtual: true)
+    // Neovim hands frames to the terminal. One that can't read our temp files (Neovim
+    // over SSH, shoji in a container) needs them inline: SHOJI_FRAMES=inline.
+    image.inline = ProcessInfo.processInfo.environment["SHOJI_FRAMES"] == "inline"
+    image.compress = zlibCompress
+  }
 
   func showFrame(rgba: UnsafeRawBufferPointer, width: Int, height: Int, changedRows: Range<Int>) -> Bool {
     var full = false
