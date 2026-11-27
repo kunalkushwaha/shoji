@@ -289,6 +289,9 @@ frames must be `a=f` row updates.
   On the test page, 10–12 MB of pixels went as 0.1 MB.
 - **`docker run -t` gives the tty rows and columns but no pixel size** (0x0). On Linux,
   shoji then asks the terminal (`CSI 14 t` → `CSI 4;h;w t`) at start and after each resize.
+- **Real terminal:** works in Ghostty (snap) on Ubuntu 24.04 at 125% scaling, with
+  `docker run --rm -it -e SHOJI_SCALE=1.25 shoji <url>` — frames inline from the
+  container (confirmed by Kunal, 2026-11-27).
 - **HiDPI:** `SHOJI_SCALE` (terminal mode only) is applied as WebKit page zoom; the view
   stays in device pixels, the page lays out in CSS pixels (1200 px at 1.25 → 960), and
   the engine scales mouse positions and scroll deltas (both are device pixels in WPE).
@@ -299,7 +302,6 @@ frames must be `a=f` row updates.
 - **Build and run the test suites on a Mac** before merging `linux` (shared files changed:
   `#if` guards, plus the inline transport, the reply event and the probe in `Display.swift`,
   `Input.swift`, `Terminal.swift`, `main.swift` — Foundation only, but not compiled for macOS).
-- A real terminal on Linux: try `docker run --rm -it shoji <url>` in Ghostty/kitty.
 - `--embed` (Neovim) on Linux, and inline frames for it (its frames go through Neovim).
 - zlib for inline frames on macOS (`Compression` gives raw deflate; needs the zlib wrapper).
 - WebKit's sandbox on a plain Linux host (Ubuntu 24.04 restricts unprivileged user namespaces).
