@@ -103,6 +103,14 @@ final class HeadlessDisplay: Display {
   func status(title: String, url: String, loading: Bool) {}
 }
 
+/// Remove this process's frame files the terminal hasn't read (on exit).
+func cleanupFrameFiles() {
+  let prefix = "tty-graphics-protocol-wkterm-\(getpid())-"
+  for f in (try? FileManager.default.contentsOfDirectory(atPath: "/tmp")) ?? [] where f.hasPrefix(prefix) {
+    try? FileManager.default.removeItem(atPath: "/tmp/" + f)
+  }
+}
+
 /// JSON lines on stdout (embed mode), written whole so lines never interleave.
 enum Output {
   static func event(_ obj: [String: Any]) {

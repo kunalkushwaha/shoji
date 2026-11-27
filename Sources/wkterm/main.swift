@@ -42,6 +42,8 @@ if argv.first == "ctl" {
 
 // MARK: browser modes
 
+atexit { cleanupFrameFiles() }
+
 let app = NSApplication.shared
 app.setActivationPolicy(.prohibited)   // no Dock icon, never steals focus
 var keep: [AnyObject] = []             // keeps sources and readers alive
