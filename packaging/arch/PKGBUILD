@@ -1,0 +1,32 @@
+# shoji for Arch Linux: built against Arch's own wpewebkit (2.54+) and glibc.
+#
+# Local build: scripts/dist-linux.sh arch (puts the source tarball next to this file,
+# so makepkg doesn't download it). Before this can go to the AUR, the repository must
+# be public, carry a license, and have a v$pkgver tag (then replace SKIP with the sum).
+pkgname=shoji
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="A real web browser in your terminal, drawn by WebKit (no Chrome); drivable by coding agents"
+arch=('x86_64' 'aarch64')
+url="https://github.com/kunalkushwaha/shoji"
+license=('unknown')
+depends=('wpewebkit>=2.54' 'mesa' 'libpng' 'zlib' 'shared-mime-info' 'glibc')
+optdepends=('noto-fonts-cjk: pages in Chinese, Japanese or Korean')
+# Swift: AUR's swift-bin or swift-language (the local build image has swift.org's toolchain)
+makedepends=('swift-bin' 'pkgconf')
+options=('!lto' '!debug')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/kunalkushwaha/shoji/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$pkgname-$pkgver"
+  # Swift's runtime goes into the binary: it then needs only wpewebkit and glibc at run time
+  swift build -c release --static-swift-stdlib --disable-sandbox
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 .build/release/shoji "$pkgdir/usr/bin/shoji"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+  install -Dm644 docs/linux.md "$pkgdir/usr/share/doc/$pkgname/linux.md"
+}

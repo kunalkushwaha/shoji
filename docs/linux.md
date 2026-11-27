@@ -325,10 +325,25 @@ frames must be `a=f` row updates.
   Chrome and Epiphany). In Docker the same restriction (plus Docker's seccomp and masked
   /proc) is why the image turns the sandbox off.
 
+- **Native packages (2026-11-28):** `scripts/dist-linux.sh [tar] [deb] [arch]` builds, all
+  in Docker: the tarball and a `.deb` from the Debian testing build (Depends:
+  `libc6 (>= 2.43)`, `libwpewebkit-2.0-1 (>= 2.54)`, `libgles2`, `libpng16-16t64`, `zlib1g`,
+  `shared-mime-info`), and an Arch package made by `makepkg` from `packaging/arch/PKGBUILD`
+  in an `archlinux` container, against Arch's own wpewebkit 2.54.3 and glibc 2.44 (Swift
+  from swift.org there; AUR's `swift-bin` on a real Arch machine). Checked: each installs
+  into a fresh container with the distro's package manager (the `.deb` with
+  `--no-install-recommends`, so `Depends` alone is enough), and agent_test, more_test
+  and embed_test all pass against the installed `/usr/bin/shoji` as a normal user.
+  Before the PKGBUILD can go to the AUR: the repository must be public, carry a license,
+  and have a `v0.2.0` tag (then a real `sha256sums`).
+
 ### Not done yet
 
-- `arm64` image (this machine has no arm64 emulation registered for Docker; options: an
-  arm64 Linux VM under Koala on an Apple Silicon Mac, or GitHub's arm64 runners).
+- `aarch64`: packages and a multi-arch (`amd64` + `arm64`) image. This machine has no
+  arm64 emulation for Docker. `dist-linux.sh` builds for the machine it runs on, so an
+  arm64 Linux host (a Koala VM on an Apple Silicon Mac, or GitHub's arm64 runners) gets
+  the arm64 `.deb` and Arch package (Arch Linux ARM: another base image). Publishing the
+  image to ghcr.io needs Kunal's OK.
 
 ## Test plan
 

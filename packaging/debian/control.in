@@ -1,0 +1,17 @@
+Package: shoji
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: Kunal Kushwaha <kunalkushwaha@users.noreply.github.com>
+Installed-Size: @SIZE@
+Depends: libc6 (>= @GLIBC@), libwpewebkit-2.0-1 (>= 2.54), libgles2, libpng16-16t64, zlib1g, shared-mime-info
+Recommends: fonts-dejavu-core, bubblewrap
+Suggests: fonts-noto-cjk
+Section: web
+Priority: optional
+Homepage: https://github.com/kunalkushwaha/shoji
+Description: real web browser in your terminal, drawn by WebKit (no Chrome)
+ shoji renders pages with WPE WebKit off-screen and shows them in terminals that
+ speak the kitty graphics protocol (Ghostty, kitty, WezTerm), inside Neovim, or
+ headless for coding agents, which drive it with `shoji ctl` (snapshot, click,
+ fill, eval, screenshot, console, network). Needs WPE WebKit 2.54 or newer
+ (Debian testing/sid).

@@ -124,9 +124,17 @@ docker exec shoji shoji ctl open https://example.com
 docker exec shoji shoji ctl snapshot
 ```
 
-Or the binary (`scripts/dist-linux.sh` → `dist/shoji-*-linux-x86_64.tar.gz`) on Debian
-testing/sid or Arch, with `libwpewebkit-2.0-1 libgles2 shared-mime-info` (Arch: `wpewebkit`).
-Outside a container, keep WebKit's sandbox on; inside one, the image sets
+Natively, on the two distros that ship WPE WebKit 2.54+ (`scripts/dist-linux.sh` builds
+all of these into `dist/`, each in Docker against that distro's own libraries):
+
+```sh
+sudo apt install ./shoji_0.2.0-1_amd64.deb             # Debian testing/sid
+sudo pacman -U shoji-0.2.0-1-x86_64.pkg.tar.zst        # Arch (packaging/arch/PKGBUILD)
+```
+
+Plus a bare binary, `shoji-*-linux-x86_64.tar.gz` (Debian testing/sid). Ubuntu, Fedora
+and Debian 13 don't package WPE WebKit 2.54: use the Docker image there. Outside a
+container, keep WebKit's sandbox on; inside one, the image sets
 `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` (the container is the sandbox).
 
 In a terminal, from the image (Ghostty, kitty or WezTerm; Ctrl+Q quits):
