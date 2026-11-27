@@ -113,4 +113,5 @@ Measurements behind each choice: [docs/research.md](docs/research.md).
 ## Status
 
 Early prototype. Not yet: right-click menus, tabs, downloads, WebGL/video capture,
-hover inside Neovim, tmux, Linux (WPE WebKit).
+hover inside Neovim, tmux, Linux (WPE WebKit — requirements and findings for whoever
+ports it: [docs/linux.md](docs/linux.md)).
