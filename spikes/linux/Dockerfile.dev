@@ -1,0 +1,7 @@
+# Dev image for the Linux port: WPE WebKit 2.54 (WPEPlatform, headless) + build tools.
+FROM debian:testing
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      libwpewebkit-2.0-dev build-essential pkg-config python3 ca-certificates curl \
+      libpng-dev fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src

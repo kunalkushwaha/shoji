@@ -161,6 +161,72 @@ In a `debian:testing` container with WPE 2.54 and a Swift toolchain:
 
 If all three work, the rest is porting (estimate: phase 1 ≈ 3–4 days, phase 2 ≈ 2–3 days).
 
+## First milestone: done (2026-11-27)
+
+Run on Debian testing (WPE WebKit 2.54.3) in Docker, x86_64. Everything in
+`spikes/linux/`:
+
+```sh
+cd spikes/linux
+docker build -t shoji-linux-dev   -f Dockerfile.dev .     # WPE 2.54 + C tools
+docker build -t shoji-linux-swift -f Dockerfile.swift .   # + Swift 6.3
+docker run --rm -e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 -v "$PWD":/src shoji-linux-dev sh -c \
+  'cc engine_spike.c $(pkg-config --cflags --libs wpe-webkit-2.0 wpe-platform-headless-2.0 libpng) -o out/engine_spike && cd out && ./engine_spike spike.png'
+docker run --rm -e WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1 -v "$PWD/swiftcheck":/src -w /src shoji-linux-swift \
+  sh -c 'swift build -c release && .build/release/swiftcheck'
+```
+
+| Check | Result |
+|---|---|
+| WebKitWebView on `wpe_display_headless_new()` (no compositor, no GPU) | works; the view is mapped and visible from the start |
+| user script in the page world posts a script message to C | works (~150 ms after start) |
+| helper in an isolated world (`"shoji"`), value back through `call_async_javascript_function` (awaits promises) | works; the page world can't see the helper |
+| requestAnimationFrame on the headless view | **57.5/s** — not throttled, no private API or tricks needed |
+| screenshot | `webkit_web_view_get_snapshot()` returns a `WebKitImage` with raw pixels (premultiplied BGRA, cairo ARGB32 order); written as PNG with libpng, colours correct |
+| synthetic click through `wpe_view_event()` | changes the page, and the event is **trusted** (`isTrusted=true`) |
+| Swift 6.3 drives WPE through a C shim (`swiftcheck/`) | works: Swift closures as callbacks, JS results as Foundation values, JS exceptions as errors |
+
+Whole C spike, start to finish: 2.5 s (2 of them measuring rAF).
+
+### What changed in the plan
+
+- **Screenshots need no custom `WPEView`.** `webkit_web_view_get_snapshot()` (with
+  `WEBKIT_SNAPSHOT_REGION_FULL_DOCUMENT` for `--full`) covers phase 1. The custom
+  view with `render_buffer` is only needed for phase 2's live frame stream.
+- **Engine in C, Swift on top.** GObject signals, `GVariant` and async callbacks are
+  natural in C; Swift sees ~20 plain functions (`spikes/linux/swiftcheck/Sources/CShim`).
+  `CWPE` is a `systemLibrary` target with `pkgConfig: "wpe-webkit-2.0"`; the headless
+  and platform APIs live in the same `libWPEWebKit-2.0.so`.
+- **Build the Linux engine next to the macOS code** (`#if os(Linux)`), not as a
+  refactor of it: the macOS build can't be compiled or tested from Linux. Do the shared
+  `Engine` protocol cleanup on a Mac where both builds can be checked. Today
+  `Control.swift` and `Terminal.swift` call `browser.web` directly about 20 times
+  (back/forward/reload/stop, url/title/isLoading/canGoBack, bounds) and `Control.swift`
+  imports AppKit and WebKit — those are the calls the protocol has to cover.
+
+### Findings to carry into the port
+
+1. **WebKit's sandbox in Docker.** WPE runs its web process under bubblewrap. In a
+   default container that fails (`bwrap: Creating new namespace failed`) and the UI
+   process aborts. Unconfined seccomp/AppArmor/systempaths still isn't enough
+   (`bwrap: loopback: Failed RTM_NEWADDR`); only `--privileged` works. Decision for the
+   image: the container is the sandbox — set `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`
+   in the image (what Playwright's Chromium images do with `--no-sandbox`). On a plain
+   Linux host keep the sandbox on; Ubuntu 24.04 restricts unprivileged user namespaces
+   (`kernel.apparmor_restrict_unprivileged_userns=1`), so test there separately.
+2. **Swift on Debian testing.** swift.org has no Debian 13/testing build; the Debian 12
+   toolchain works, but `swift-build` needs `libxml2.so.2` and testing ships
+   `libxml2.so.16`. `Dockerfile.swift` installs bookworm's `libxml2` alongside (different
+   package name, pinned low). The compiled shoji binary doesn't need it — the runtime
+   image stays plain `debian:testing` + `libwpewebkit-2.0-1`.
+3. **Button-up events must have press count 0** (`wpe_event_pointer_button_new(UP, …, 0)`);
+   WPE asserts otherwise. Double clicks: press count 2 on the second DOWN
+   (`wpe_view_compute_press_count()` exists for this).
+4. **Load base URI:** `load_html(html, "file:///…/")` gives the page a `file:` origin,
+   so the offline rules' `^file:` allowance applies to it.
+5. Runtime size: `libwpewebkit-2.0-1` is ~127 MB installed (plus GLib, libsoup,
+   GStreamer pulled in as dependencies — measure the final image).
+
 ## Test plan
 
 - `python3 tests/agent_test.py /path/to/shoji` in the container (all 38 checks).
