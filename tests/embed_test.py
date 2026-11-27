@@ -137,9 +137,9 @@ def run(label, extra_env=None, inline=False):
         check("the picture fills the window (cols x cell width)", (n.w, n.h) == (COLS * CW, ROWS * CH), (n.w, n.h, scale))
         want = ("d", "z") if inline else ("t", None)
         check("frames go as " + ("inline, zlib" if inline else "temp files"), (first.get("t"), first.get("o")) == want, first)
-        with n.lock:
-            colours = len(set(bytes(n.img[i:i + 4]) for i in range(0, len(n.img), 4 * 97)))
-        check("the picture is the page (not blank)", colours > 3, colours)
+        # the first frame can come before the page has painted: wait for a painted one
+        colours = lambda: len(set(bytes(n.img[i:i + 4]) for i in range(0, len(n.img), 4 * 97)))
+        check("the picture is the page (not blank)", n.until(lambda: colours() > 3, 10), colours())
 
         col, row = n.cell("#fullname", scale)
         n.send({"cmd": "mouse", "kind": "press", "col": col, "row": row})
