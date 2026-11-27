@@ -33,7 +33,7 @@ class FakeKitty:
             os.execve(SHOJI, ["shoji", BASE + "app.html", "--control", "--name", self.name], env)
         px = (COLS * CW, ROWS * CH) if tty_pixels else (0, 0)
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", ROWS, COLS, *px))
-        self.buf, self.chunks, self.pending_keys = b"", [], None
+        self.buf, self.chunks, self.pending_keys = bytearray(), [], None
         self.img, self.w, self.h = None, 0, 0
         self.commands, self.bytes_in = [], 0
 
@@ -51,16 +51,24 @@ class FakeKitty:
             self.parse()
 
     def parse(self):
+        # linear in the stream: walk with an index, cut the buffer once (re-searching and
+        # re-slicing a multi-MB buffer per chunk made this crawl with big inline frames)
+        buf, pos = self.buf, 0
         while True:
-            m = re.search(rb"\x1b_G(.*?)\x1b\\", self.buf, re.S)
-            if not m: break
-            self.buf = self.buf[m.end():]
-            body = m.group(1)
+            start = buf.find(b"\x1b_G", pos)
+            if start < 0: break
+            end = buf.find(b"\x1b\\", start + 3)
+            if end < 0:
+                pos = start
+                break
+            body = bytes(buf[start + 3:end])
+            pos = end + 2
             keys, _, payload = body.partition(b";")
             kv = dict(p.split(b"=", 1) for p in keys.split(b",") if b"=" in p)
             self.command({k.decode(): v.decode() for k, v in kv.items()}, payload)
-        if len(self.buf) > 1 << 16 and b"\x1b_G" not in self.buf[-(1 << 16):]:
-            self.buf = self.buf[-(1 << 16):]
+        if buf.find(b"\x1b_G", pos) < 0:
+            pos = max(pos, len(buf) - 2)                # keep a possibly split ESC _ G
+        del buf[:pos]
 
     def command(self, kv, payload):
         if kv.get("a") == "q":

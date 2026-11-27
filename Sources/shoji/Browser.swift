@@ -502,4 +502,26 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     }
   }
 }
+
+/// zlib (RFC 1950) for inline terminal frames. Apple's .zlib is raw DEFLATE (RFC 1951),
+/// so this adds zlib's 2-byte header and Adler-32 trailer, as kitty's o=z expects.
+func zlibCompress(_ d: Data) -> Data? {
+  guard let raw = try? (d as NSData).compressed(using: .zlib) as Data else { return nil }
+  var a: UInt32 = 1, b: UInt32 = 0
+  d.withUnsafeBytes { (p: UnsafeRawBufferPointer) in
+    var i = 0
+    while i < p.count {                                  // blocks of 5552 keep the sums in 32 bits
+      let end = min(i + 5552, p.count)
+      while i < end { a &+= UInt32(p[i]); b &+= a; i += 1 }
+      a %= 65521; b %= 65521
+    }
+  }
+  var out = Data([0x78, 0x5e])                           // deflate, 32K window, default level
+  out.reserveCapacity(raw.count + 6)
+  out.append(raw)
+  let adler = (b << 16) | a
+  out.append(contentsOf: [UInt8(adler >> 24), UInt8(adler >> 16 & 0xff), UInt8(adler >> 8 & 0xff), UInt8(adler & 0xff)])
+  return out
+}
+
 #endif

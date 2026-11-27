@@ -32,8 +32,6 @@ final class Terminal {
     if shoji_winsize(fd, &r, &c, &xp, &yp) == 0 {
       rows = Int(r); cols = Int(c); pixelWidth = Int(xp); pixelHeight = Int(yp)
     }
-    needsPixelQuery = pixelWidth == 0 || pixelHeight == 0
-    if needsPixelQuery, let p = reportedPixels { pixelWidth = p.width; pixelHeight = p.height }
     #else
     var ws = winsize()
     if ioctl(fd, TIOCGWINSZ, &ws) == 0 {
@@ -41,6 +39,8 @@ final class Terminal {
       pixelWidth = Int(ws.ws_xpixel); pixelHeight = Int(ws.ws_ypixel)
     }
     #endif
+    needsPixelQuery = pixelWidth == 0 || pixelHeight == 0
+    if needsPixelQuery, let p = reportedPixels { pixelWidth = p.width; pixelHeight = p.height }
   }
 
   func write(_ s: String) {
@@ -108,9 +108,7 @@ final class TerminalDisplay: Display {
 
   init(term: Terminal) {
     self.term = term
-    #if os(Linux)
     image.compress = zlibCompress
-    #endif
   }
 
   var pagePixels: (width: Int, height: Int) {
@@ -127,9 +125,7 @@ final class TerminalDisplay: Display {
   /// a sandboxed terminal) → pixels inline in the stream. No answer within a second →
   /// temp files, as before. SHOJI_FRAMES=inline|file decides instead.
   func probe() {
-    #if os(Linux)
     if term.needsPixelQuery { term.write("\u{1b}[14t") }
-    #endif
     if let forced = ProcessInfo.processInfo.environment["SHOJI_FRAMES"] {
       image.inline = forced == "inline"
       transportKnown = true
@@ -187,9 +183,7 @@ final class TerminalDisplay: Display {
 
   func resized() {
     term.refreshSize()
-    #if os(Linux)
     if term.needsPixelQuery { term.write("\u{1b}[14t") }   // the answer comes back through handle()
-    #endif
     term.write("\u{1b}[2J")
     browser?.resized()
     drawBar()
