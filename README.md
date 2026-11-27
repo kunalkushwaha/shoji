@@ -5,6 +5,8 @@
 *Shoji* (障子) is the translucent paper screen in a wooden frame: the light and the world
 outside show through it. Here, web pages show through your terminal.
 
+![shoji in Ghostty showing Wikipedia's "Shoji" article: the top bar with back, forward and reload and the address, and the live page below it](docs/screenshot.png)
+
 For terminals that speak the kitty graphics protocol: Ghostty, kitty, WezTerm. macOS for now.
 
 ```sh
