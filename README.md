@@ -14,6 +14,21 @@ shoji https://example.com
 shoji ./report.html --offline
 ```
 
+## How light is it?
+
+Next to headless Chrome (what other terminal browsers run on), same pages:
+
+| | shoji | headless Chrome |
+|---|---|---|
+| Memory, tiny page | **77 MB** | 267 MB |
+| Memory, Wikipedia article | **218 MB** | 351 MB |
+| Processes | **4** | 12 |
+| On disk | **0.4 MB** (WebKit is part of macOS) | 1.5 GB |
+| Idle CPU, static page | **0.9%** of one core | — |
+| Animated page | 30 fps, 34% of one core | — |
+
+Details and method: [docs/performance.md](docs/performance.md).
+
 ## Install
 
 Needs macOS 13+ and a terminal with the kitty graphics protocol (Ghostty, kitty, WezTerm).

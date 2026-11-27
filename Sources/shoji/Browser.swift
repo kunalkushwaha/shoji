@@ -51,6 +51,17 @@ private let focusScript = """
   document.addEventListener('focusin', report, true);
   document.addEventListener('focusout', () => setTimeout(report, 0), true);
   window.addEventListener('pageshow', report);
+
+  // Tell shoji when the page changes (DOM edits, animations and transitions
+  // starting), so it can wake up instead of checking often. At most every 100 ms.
+  let pending = false;
+  function changed() {
+    if (pending) return;
+    pending = true;
+    setTimeout(() => { pending = false; try { window.webkit.messageHandlers.shojiWake.postMessage(1); } catch (e) {} }, 100);
+  }
+  new MutationObserver(changed).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  ['animationstart', 'animationiteration', 'transitionstart', 'transitionrun', 'load', 'resize'].forEach(t => window.addEventListener(t, changed, true));
 })();
 """
 
@@ -92,6 +103,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
     web.navigationDelegate = self
     web.uiDelegate = self
     config.userContentController.add(self, name: "shojiFocus")
+    config.userContentController.add(self, name: "shojiWake")
     Browser.keepAliveOffScreen(web)
     window.contentView = web
     window.acceptsMouseMovedEvents = true
@@ -179,7 +191,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
 
   private func tick() {
     let now = Date()
-    if now < activeUntil || now.timeIntervalSince(lastIdleCheck) > 0.5 {
+    if now < activeUntil || now.timeIntervalSince(lastIdleCheck) > 2.0 {
       lastIdleCheck = now
       capture()
     }
@@ -380,6 +392,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate, WKScriptMessa
   // MARK: WebKit delegates
 
   func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+    if message.name == "shojiWake" { wake(for: 0.5); return }
     if message.name == "shojiFocus", let editable = message.body as? Bool {
       log("focus editable=\(editable)")
       display.focusChanged(editable: editable)

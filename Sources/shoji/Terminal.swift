@@ -43,13 +43,20 @@ final class Terminal {
     var raw = saved
     cfmakeraw(&raw)
     tcsetattr(fd, TCSANOW, &raw)
-    write("\u{1b}[?1049h\u{1b}[?25l\u{1b}[2J\u{1b}[?1003h\u{1b}[?1006h\u{1b}[?1016h")
+    // save the window title (xterm title stack) so leaving can put it back
+    write("\u{1b}[22;2t\u{1b}[?1049h\u{1b}[?25l\u{1b}[2J\u{1b}[?1003h\u{1b}[?1006h\u{1b}[?1016h")
   }
 
   func leave() {
     write("\u{1b}_Ga=d,d=A,q=2\u{1b}\\")                     // remove our images
-    write("\u{1b}[?1016l\u{1b}[?1006l\u{1b}[?1003l\u{1b}[?25h\u{1b}[?1049l")
+    write("\u{1b}[?1016l\u{1b}[?1006l\u{1b}[?1003l\u{1b}[?25h\u{1b}[?1049l\u{1b}[23;2t")
     tcsetattr(fd, TCSANOW, &saved)
+  }
+
+  /// The window (and tab) title: the page title, or its address while it has none.
+  func title(_ s: String) {
+    let clean = s.unicodeScalars.filter { $0.value >= 0x20 && $0.value != 0x7f }.map(String.init).joined()
+    write("\u{1b}]2;\(clean.isEmpty ? "shoji" : clean + " · shoji")\u{07}")
   }
 
   /// The top bar: ◀ ▶ ⟳, then the title/address (or the address being typed).
@@ -97,6 +104,9 @@ final class TerminalDisplay: Display {
   func resetFrame() { image.reset() }
 
   func status(title: String, url: String, loading: Bool) {
+    if title != lastStatus.title || (title.isEmpty && url != lastStatus.url) {
+      term.title(title.isEmpty ? url : title)
+    }
     lastStatus = (title, url, loading)
     drawBar()
   }
