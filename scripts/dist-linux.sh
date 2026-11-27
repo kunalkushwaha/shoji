@@ -37,7 +37,7 @@ if want tar; then
   dir="dist/shoji-$version-linux-$arch"
   rm -rf "$dir" && mkdir -p "$dir"
   cp "$bin" "$dir/shoji"
-  cp README.md "$dir/"
+  cp README.md LICENSE NOTICE "$dir/"
   tar -czf "$dir.tar.gz" -C dist "$(basename "$dir")"
   rm -rf "$dir"
   echo "built $dir.tar.gz ($(du -h "$dir.tar.gz" | cut -f1))"
@@ -51,6 +51,7 @@ if want deb; then
   install -Dm755 "$bin" "$root/usr/bin/shoji"
   install -Dm644 README.md "$root/usr/share/doc/shoji/README.md"
   install -Dm644 docs/linux.md "$root/usr/share/doc/shoji/linux.md"
+  install -Dm644 packaging/debian/copyright "$root/usr/share/doc/shoji/copyright"
   mkdir -p "$root/DEBIAN"
   sed -e "s/@VERSION@/$version-1/" -e "s/@ARCH@/$debarch/" -e "s/@GLIBC@/$glibc/" \
       -e "s/@SIZE@/$(du -sk "$root/usr" | cut -f1)/" packaging/debian/control.in > "$root/DEBIAN/control"

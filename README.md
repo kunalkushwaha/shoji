@@ -162,3 +162,7 @@ headless Chromium: [docs/performance.md](docs/performance.md#linux); how it's bu
 
 Early prototype. Not yet: right-click menus, tabs, downloads, WebGL/video capture,
 hover inside Neovim, tmux. Linux: WebKit's sandbox is off in the Docker image.
+
+## License
+
+[Apache License 2.0](LICENSE). Copyright 2026 Kunal Kushwaha.
