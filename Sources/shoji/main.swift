@@ -33,7 +33,7 @@ func fail(_ s: String) -> Never {
   exit(1)
 }
 
-let version = "0.1.0"
+let version = "0.1.1"
 if flag("--version") || flag("-v") { print("shoji \(version)"); exit(0) }
 if flag("--help") || flag("-h") {
   print("""
