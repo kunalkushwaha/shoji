@@ -1,4 +1,5 @@
-// The terminal side: raw mode, sizes, kitty graphics frames, the top bar.
+// The terminal side (standalone mode): raw mode, sizes, the top bar, and the
+// terminal's own input (address bar, mouse in pixels) turned into browser calls.
 import Foundation
 
 final class Terminal {
@@ -6,11 +7,8 @@ final class Terminal {
   private var saved = termios()
   private(set) var rows = 24, cols = 80
   private(set) var pixelWidth = 0, pixelHeight = 0      // text area, device pixels
-  var cellWidth: Double { cols > 0 ? Double(pixelWidth) / Double(cols) : 8 }
-  var cellHeight: Double { rows > 0 ? Double(pixelHeight) / Double(rows) : 16 }
-  private var frameSeq = 0
-  private var placed: (w: Int, h: Int, cols: Int, rows: Int)?   // the image on screen
-  let pid = ProcessInfo.processInfo.processIdentifier
+  var cellWidth: Double { cols > 0 && pixelWidth > 0 ? Double(pixelWidth) / Double(cols) : 16 }
+  var cellHeight: Double { rows > 0 && pixelHeight > 0 ? Double(pixelHeight) / Double(rows) : 34 }
 
   init?() {
     fd = open("/dev/tty", O_RDWR)
@@ -54,40 +52,6 @@ final class Terminal {
     tcsetattr(fd, TCSANOW, &saved)
   }
 
-  /// Show a frame of RGBA pixels below the top bar. The first frame (or one of a
-  /// new size) creates image 1 and places it, fitted to the page area's cells; after
-  /// that only the changed rows are written into it in place (a=f,r=1,X=1), so the
-  /// placement never goes away and nothing flickers. Re-sending an image id would
-  /// delete its placement first (kitty spec, and Ghostty's storage code).
-  /// Pixels travel as a temp file the terminal reads and deletes (t=t), not through
-  /// the terminal stream; each update is one synchronized output (?2026).
-  /// Returns true if it was a full frame.
-  @discardableResult
-  func showFrame(rgba: UnsafeRawBufferPointer, width: Int, height: Int, changedRows: Range<Int>) -> Bool {
-    let full = placed == nil || placed!.w != width || placed!.h != height
-      || placed!.cols != cols || placed!.rows != rows - 1
-    let rowsToSend = full ? 0..<height : changedRows
-    let stride = width * 4
-    let slice = UnsafeRawBufferPointer(rebasing: rgba[(rowsToSend.lowerBound * stride)..<(rowsToSend.upperBound * stride)])
-    frameSeq += 1
-    let path = "/tmp/tty-graphics-protocol-wkterm-\(pid)-\(frameSeq % 8).rgba"
-    guard FileManager.default.createFile(atPath: path, contents: Data(slice)) else { return full }
-    let file = Data(path.utf8).base64EncodedString()
-    var out = "\u{1b}[?2026h"
-    if full {
-      if placed != nil { out += "\u{1b}_Ga=d,d=I,i=1,q=2\u{1b}\\" }
-      out += "\u{1b}[2;1H\u{1b}_Ga=T,i=1,p=1,q=2,t=t,f=32,s=\(width),v=\(height),c=\(cols),r=\(rows - 1),C=1;\(file)\u{1b}\\"
-      placed = (width, height, cols, rows - 1)
-    } else {
-      out += "\u{1b}_Ga=f,i=1,r=1,X=1,q=2,t=t,f=32,x=0,y=\(rowsToSend.lowerBound),s=\(width),v=\(rowsToSend.count);\(file)\u{1b}\\"
-    }
-    write(out + "\u{1b}[?2026l")
-    return full
-  }
-
-  /// Forget the image (after a resize the next frame recreates it).
-  func resetFrame() { placed = nil }
-
   /// The top bar: ◀ ▶ ⟳, then the title/address (or the address being typed).
   func bar(_ text: String, editing: Bool, loading: Bool, offline: Bool) {
     let buttons = " ◀  ▶  \(loading ? "✕" : "⟳")  "
@@ -100,5 +64,126 @@ final class Terminal {
     let field = editing ? "\u{1b}[48;2;31;31;31m\u{1b}[38;2;255;255;255m" : barStyle
     let tagStyle = "\u{1b}[48;2;137;209;133m\u{1b}[38;2;31;31;31m"
     write("\u{1b}[1;1H" + barStyle + buttons + field + body + barStyle + " " + tagStyle + tag + "\u{1b}[0m")
+  }
+}
+
+/// Standalone mode: the page below a one-row top bar, input from the terminal.
+final class TerminalDisplay: Display {
+  let term: Terminal
+  let image = KittyImage(id: 1, virtual: false)
+  weak var browser: Browser?
+  var offline = false
+  private var editing = false
+  private var typed = ""
+  private var lastStatus = (title: "", url: "", loading: false)
+
+  init(term: Terminal) { self.term = term }
+
+  var pagePixels: (width: Int, height: Int) {
+    (Int(Double(term.cols) * term.cellWidth), Int(Double(term.rows - 1) * term.cellHeight))
+  }
+  var wantsFrames: Bool { true }
+  var ready: Bool { true }
+
+  func showFrame(rgba: UnsafeRawBufferPointer, width: Int, height: Int, changedRows: Range<Int>) -> Bool {
+    var full = false
+    if let cmd = image.command(rgba: rgba, width: width, height: height, changedRows: changedRows,
+                               cols: term.cols, rows: term.rows - 1, cursorRow: 2, full: &full) {
+      term.write(cmd)
+    }
+    return full
+  }
+
+  func resetFrame() { image.reset() }
+
+  func status(title: String, url: String, loading: Bool) {
+    lastStatus = (title, url, loading)
+    drawBar()
+  }
+
+  func drawBar() {
+    let text: String
+    if editing {
+      text = " " + typed + "▏"
+    } else {
+      text = " " + (lastStatus.title.isEmpty ? lastStatus.url : "\(lastStatus.title) — \(lastStatus.url)")
+    }
+    term.bar(text, editing: editing, loading: lastStatus.loading, offline: offline)
+  }
+
+  func resized() {
+    term.refreshSize()
+    term.write("\u{1b}[2J")
+    browser?.resized()
+    drawBar()
+  }
+
+  func quit() {
+    term.leave()
+    exit(0)
+  }
+
+  // MARK: terminal input
+
+  func handle(_ ev: InputEvent) {
+    guard let b = browser else { return }
+    log("input \(ev)")
+    switch ev {
+    case .key(let k): key(k, b)
+    case .mouse(let m): mouse(m, b)
+    }
+  }
+
+  private func startEditing(_ b: Browser) {
+    editing = true
+    typed = b.web.url?.absoluteString ?? ""
+    drawBar()
+  }
+
+  private func key(_ k: Key, _ b: Browser) {
+    if case .ctrl("q") = k { quit() }   // always quits, even while typing an address
+    if editing {
+      switch k {
+      case .text(let s): typed += s
+      case .backspace: if !typed.isEmpty { typed.removeLast() }
+      case .enter: editing = false; b.load(typed)
+      case .escape, .ctrl("l"): editing = false
+      default: break
+      }
+      drawBar()
+      return
+    }
+    switch k {
+    case .ctrl("l"): startEditing(b)
+    case .ctrl("r"): b.web.reload()
+    case .ctrl("b"): b.web.goBack()
+    case .ctrl("n"): b.web.goForward()
+    default: b.key(k)
+    }
+  }
+
+  private func mouse(_ m: Mouse, _ b: Browser) {
+    let barHeight = term.cellHeight
+    if m.y < barHeight {                                  // the top bar
+      if m.kind == .press && m.button == 0 {
+        switch Int(m.x / term.cellWidth) {
+        case 0...2: b.web.goBack()
+        case 3...5: b.web.goForward()
+        case 6...8: if b.web.isLoading { b.web.stopLoading() } else { b.web.reload() }
+        default: startEditing(b)
+        }
+      }
+      return
+    }
+    // terminal pixels -> page CSS pixels
+    let x = m.x / b.scale, y = (m.y - barHeight) / b.scale
+    switch m.kind {
+    case .wheelUp: b.mouse(.wheelUp, x: x, y: y)
+    case .wheelDown: b.mouse(.wheelDown, x: x, y: y)
+    case .press where m.button == 0: b.mouse(.press, x: x, y: y)
+    case .release: b.mouse(.release, x: x, y: y)
+    case .motion: b.mouse(.move, x: x, y: y)
+    default: break   // right/middle: ignored for now (a native context menu would block)
+    }
   }
 }

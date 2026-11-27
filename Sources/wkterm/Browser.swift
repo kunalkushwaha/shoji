@@ -1,4 +1,6 @@
-// The browser: a live WKWebView in an off-screen window, drawn into the terminal.
+// The browser core: a live WKWebView in an off-screen window. It knows nothing
+// about terminals; frames go to a Display, input comes in through its API (from
+// the terminal UI, from Neovim, or from the control socket).
 import AppKit
 import WebKit
 
@@ -26,13 +28,17 @@ func log(_ s: String) {
   debugLog?.write(String(format: "%7.3f ", Date().timeIntervalSince(logStart)).data(using: .utf8)! + (s + "\n").data(using: .utf8)!)
 }
 
+enum MouseAction { case press, release, move, wheelUp, wheelDown }
+
 final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
-  let term: Terminal
+  let display: Display
   let offline: Bool
   let scale: Double
   let window: PageWindow
   let web: WKWebView
   private var observers: [NSKeyValueObservation] = []
+  var onStatus: (() -> Void)?
+  var lastActivity = Date()
 
   // frames
   private var lastFrame: [UInt8] = []
@@ -40,19 +46,15 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
   private var activeUntil = Date()          // capture fast until then
   private var lastIdleCheck = Date.distantPast
 
-  // address bar
-  private var editing = false
-  private var typed = ""
-
   // mouse state
   private var leftDown = false
   private var lastPress = (time: Date.distantPast, x: 0.0, y: 0.0, count: 0)
 
-  init(term: Terminal, offline: Bool, rules: WKContentRuleList?) {
-    self.term = term
+  init(display: Display, offline: Bool, rules: WKContentRuleList?) {
+    self.display = display
     self.offline = offline
     scale = Double(NSScreen.main?.backingScaleFactor ?? 2)
-    let size = Browser.pageSize(term, scale: scale)
+    let size = Browser.pointSize(display.pagePixels, scale: scale)
     window = PageWindow(contentRect: NSRect(x: -30000, y: -30000, width: size.width, height: size.height),
                         styleMask: [.borderless], backing: .buffered, defer: false)
     let config = WKWebViewConfiguration()
@@ -70,12 +72,14 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
     window.makeKey()
     window.makeFirstResponder(web)
     observers = [
-      web.observe(\.title) { [weak self] _, _ in self?.drawBar() },
-      web.observe(\.url) { [weak self] _, _ in self?.drawBar() },
-      web.observe(\.isLoading) { [weak self] _, _ in self?.drawBar(); self?.wake() },
+      web.observe(\.title) { [weak self] _, _ in self?.statusChanged() },
+      web.observe(\.url) { [weak self] _, _ in self?.statusChanged() },
+      web.observe(\.isLoading) { [weak self] _, _ in self?.statusChanged(); self?.wake() },
     ]
-    Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.tick() }
-    log("terminal \(term.cols)x\(term.rows) cells, \(term.pixelWidth)x\(term.pixelHeight) px, cell \(term.cellWidth)x\(term.cellHeight); scale \(scale); page \(size.width)x\(size.height) pt")
+    if display.wantsFrames {
+      Timer.scheduledTimer(withTimeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.tick() }
+    }
+    log("page \(size.width)x\(size.height) pt, scale \(scale)")
   }
 
   /// WebKit pauses pages whose window can't be seen (no animation frames, slow
@@ -99,18 +103,24 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
     unsafeBitCast(method_getImplementation(m), to: Setter.self)(obj, sel, value)
   }
 
-  /// The page area (all rows but the top bar) in points.
-  static func pageSize(_ term: Terminal, scale: Double) -> NSSize {
-    let w = Double(term.cols) * term.cellWidth / scale
-    let h = Double(term.rows - 1) * term.cellHeight / scale
-    return NSSize(width: max(100, w), height: max(100, h))
+  static func pointSize(_ px: (width: Int, height: Int), scale: Double) -> NSSize {
+    NSSize(width: max(100, Double(px.width) / scale), height: max(100, Double(px.height) / scale))
   }
+
+  private func statusChanged() {
+    display.status(title: web.title ?? "", url: web.url?.absoluteString ?? "", loading: web.isLoading)
+    onStatus?()
+  }
+
+  // MARK: navigation
 
   func load(_ target: String) {
     var s = target.trimmingCharacters(in: .whitespaces)
     let path = (s as NSString).expandingTildeInPath
-    if FileManager.default.fileExists(atPath: path) {
+    if !s.contains("://"), FileManager.default.fileExists(atPath: path) {
       let url = URL(fileURLWithPath: path).standardizedFileURL
+      web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+    } else if s.hasPrefix("file://"), let url = URL(string: s) {
       web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
     } else {
       if !s.contains("://") {
@@ -122,15 +132,13 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
     wake()
   }
 
+  /// The display's page area changed size (in device pixels).
   func resized() {
-    term.refreshSize()
-    let size = Browser.pageSize(term, scale: scale)
+    let size = Browser.pointSize(display.pagePixels, scale: scale)
     window.setContentSize(size)
     web.frame = NSRect(origin: .zero, size: size)
-    term.write("\u{1b}[2J")
-    term.resetFrame()
+    display.resetFrame()
     lastFrame = []
-    drawBar()
     wake()
   }
 
@@ -138,6 +146,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
 
   /// Capture fast for a while (after input, loads, or when the page changes).
   func wake(for seconds: Double = 0.8) {
+    lastActivity = Date()
     activeUntil = max(activeUntil, Date().addingTimeInterval(seconds))
   }
 
@@ -150,27 +159,34 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
   }
 
   private func capture() {
-    guard !capturing else { return }
+    guard !capturing, display.ready else { return }
     capturing = true
     let cfg = WKSnapshotConfiguration()
     cfg.rect = web.bounds
     web.takeSnapshot(with: cfg) { [weak self] image, _ in
       guard let self = self else { return }
       self.capturing = false
-      guard let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+      guard let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+            var px = Browser.rgba(cg) else { return }
       let w = cg.width, h = cg.height
-      var px = [UInt8](repeating: 0, count: w * h * 4)
-      guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
-                                space: CGColorSpaceCreateDeviceRGB(),
-                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
-      ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
       let changed = Browser.changedRows(old: self.lastFrame, new: px, width: w, height: h)
       if changed.isEmpty { return }                  // nothing changed: send nothing
-      self.lastFrame = px
-      let full = px.withUnsafeBytes { self.term.showFrame(rgba: $0, width: w, height: h, changedRows: changed) }
+      swap(&self.lastFrame, &px)
+      let full = self.lastFrame.withUnsafeBytes { self.display.showFrame(rgba: $0, width: w, height: h, changedRows: changed) }
       log(full ? "frame \(w)x\(h) full" : "frame rows \(changed.lowerBound)..<\(changed.upperBound) of \(h)")
-      self.wake(for: 0.3)                            // still changing (animation?): keep up
+      self.activeUntil = max(self.activeUntil, Date().addingTimeInterval(0.3))   // still changing: keep up
     }
+  }
+
+  /// Pixels of an image as RGBA bytes.
+  static func rgba(_ cg: CGImage) -> [UInt8]? {
+    let w = cg.width, h = cg.height
+    var px = [UInt8](repeating: 0, count: w * h * 4)
+    guard let ctx = CGContext(data: &px, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                              space: CGColorSpaceCreateDeviceRGB(),
+                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+    return px
   }
 
   /// The band of rows that differs between two frames (all rows if sizes differ).
@@ -190,57 +206,11 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
   }
 
-  // MARK: top bar
+  // MARK: input (page coordinates are CSS pixels from the top-left of the view)
 
-  func drawBar() {
-    let text: String
-    if editing {
-      text = " " + typed + "▏"
-    } else {
-      let title = web.title ?? ""
-      let url = web.url?.absoluteString ?? ""
-      text = " " + (title.isEmpty ? url : "\(title) — \(url)")
-    }
-    term.bar(text, editing: editing, loading: web.isLoading, offline: offline)
-  }
-
-  // MARK: input
-
-  func handle(_ ev: InputEvent) {
-    log("input \(ev)")
-    switch ev {
-    case .key(let k): key(k)
-    case .mouse(let m): mouse(m)
-    }
-    wake()
-  }
-
-  private func key(_ k: Key) {
-    if case .ctrl("q") = k { quit() }   // always quits, even while typing an address
-    if editing {
-      switch k {
-      case .text(let s): typed += s
-      case .backspace: if !typed.isEmpty { typed.removeLast() }
-      case .enter: editing = false; load(typed)
-      case .escape, .ctrl("l"): editing = false
-      default: break
-      }
-      drawBar()
-      return
-    }
+  func key(_ k: Key) {
     switch k {
-    case .ctrl("q"): quit()
-    case .ctrl("l"): editing = true; typed = web.url?.absoluteString ?? ""; drawBar()
-    case .ctrl("r"): web.reload()
-    case .ctrl("b"): web.goBack()
-    case .ctrl("n"): web.goForward()
-    case .text(let s):
-      if s.unicodeScalars.allSatisfy({ $0.isASCII }) {
-        for ch in s { sendKey(String(ch), code: 0) }
-      } else {
-        // text from an input method (Japanese etc.): insert it as committed text
-        (web as NSView as? NSTextInputClient)?.insertText(s, replacementRange: NSRange(location: NSNotFound, length: 0))
-      }
+    case .text(let s): typeText(s)
     case .enter: sendKey("\r", code: 36)
     case .tab: sendKey("\t", code: 48)
     case .backspace: sendKey("\u{7f}", code: 51)
@@ -256,6 +226,20 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
     case .pageDown: sendKey(fn(NSPageDownFunctionKey), code: 121)
     case .ctrl: break
     }
+    wake()
+  }
+
+  /// Plain ASCII as key presses; other text (input methods: Japanese etc.) as
+  /// committed text, the way an IME delivers it.
+  func typeText(_ s: String) {
+    if s.unicodeScalars.allSatisfy({ $0.isASCII }) {
+      for ch in s {
+        if ch == "\n" || ch == "\r" { sendKey("\r", code: 36) } else { sendKey(String(ch), code: 0) }
+      }
+    } else {
+      (web as NSView as? NSTextInputClient)?.insertText(s, replacementRange: NSRange(location: NSNotFound, length: 0))
+    }
+    wake()
   }
 
   private func fn(_ k: Int) -> String { String(Character(UnicodeScalar(UInt32(k))!)) }
@@ -266,72 +250,130 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
                                   timestamp: ProcessInfo.processInfo.systemUptime,
                                   windowNumber: window.windowNumber, context: nil, characters: chars,
                                   charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code) {
-        window.sendEvent(e)
+        if type == .keyDown { web.keyDown(with: e) } else { web.keyUp(with: e) }
       }
     }
   }
 
-  private func mouse(_ m: Mouse) {
-    let barHeight = term.cellHeight
-    if m.y < barHeight {                                  // the top bar
-      if m.kind == .press && m.button == 0 {
-        let col = Int(m.x / term.cellWidth)
-        switch col {
-        case 0...2: web.goBack()
-        case 3...5: web.goForward()
-        case 6...8: if web.isLoading { web.stopLoading() } else { web.reload() }
-        default: editing = true; typed = web.url?.absoluteString ?? ""; drawBar()
-        }
-      }
-      return
-    }
-    // terminal pixels -> page points (window coordinates have their origin bottom-left)
-    let px = m.x / scale, py = (m.y - barHeight) / scale
-    let loc = NSPoint(x: px, y: web.bounds.height - py)
-    switch m.kind {
+  func mouse(_ action: MouseAction, x: Double, y: Double) {
+    let loc = NSPoint(x: x, y: web.bounds.height - y)     // window coordinates: origin bottom-left
+    switch action {
     case .wheelUp, .wheelDown:
-      let dy: Int32 = m.kind == .wheelUp ? 60 : -60
-      if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0),
-         let e = NSEvent(cgEvent: cg) {
-        web.scrollWheel(with: e)
-      }
-    case .press where m.button == 0:
+      scroll(by: action == .wheelUp ? -60 : 60, at: loc)
+    case .press:
       let now = Date()
-      let near = abs(lastPress.x - px) < 4 && abs(lastPress.y - py) < 4
+      let near = abs(lastPress.x - x) < 4 && abs(lastPress.y - y) < 4
       let count = (now.timeIntervalSince(lastPress.time) < 0.35 && near) ? lastPress.count + 1 : 1
-      lastPress = (now, px, py, count)
+      lastPress = (now, x, y, count)
       leftDown = true
       sendMouse(.leftMouseDown, loc, clicks: count)
-    case .release where m.button == 0 || leftDown:
+    case .release:
       leftDown = false
       sendMouse(.leftMouseUp, loc, clicks: lastPress.count)
-    case .motion:
+    case .move:
       sendMouse(leftDown ? .leftMouseDragged : .mouseMoved, loc, clicks: 0)
-    default:
-      break   // right/middle buttons: ignored for now (a context menu would block)
     }
+    wake()
   }
 
+  func click(x: Double, y: Double) {
+    mouse(.press, x: x, y: y)
+    mouse(.release, x: x, y: y)
+  }
+
+  /// Scroll by CSS pixels (positive = down), as a real wheel would.
+  func scroll(by dy: Double, at point: NSPoint? = nil) {
+    let loc = point ?? NSPoint(x: web.bounds.midX, y: web.bounds.midY)
+    if let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                        wheel1: Int32(-dy.rounded()), wheel2: 0, wheel3: 0) {
+      cg.location = CGPoint(x: loc.x, y: loc.y)
+      if let e = NSEvent(cgEvent: cg) { web.scrollWheel(with: e) }
+    }
+    wake()
+  }
+
+  /// Mouse events go straight to the web view's handlers (as WebKitTestRunner,
+  /// Bun and warpweb do): through the window, AppKit treats a click on an
+  /// inactive window as "activate the window" and the page never sees it.
   private func sendMouse(_ type: NSEvent.EventType, _ loc: NSPoint, clicks: Int) {
-    if let e = NSEvent.mouseEvent(with: type, location: loc, modifierFlags: [],
-                                  timestamp: ProcessInfo.processInfo.systemUptime,
-                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                                  clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) {
-      window.sendEvent(e)
+    guard let e = NSEvent.mouseEvent(with: type, location: loc, modifierFlags: [],
+                                     timestamp: ProcessInfo.processInfo.systemUptime,
+                                     windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                     clickCount: clicks, pressure: type == .leftMouseDown ? 1 : 0) else { return }
+    switch type {
+    case .leftMouseDown: web.mouseDown(with: e)
+    case .leftMouseUp: web.mouseUp(with: e)
+    case .leftMouseDragged: web.mouseDragged(with: e)
+    default: web.mouseMoved(with: e)
     }
   }
 
-  func quit() {
-    term.leave()
-    exit(0)
+  // MARK: reading the page
+
+  func eval(_ js: String, _ done: @escaping (Any?, String?) -> Void) {
+    web.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+      switch result {
+      case .success(let v): done(v, nil)
+      case .failure(let e): done(nil, (e as NSError).userInfo["WKJavaScriptExceptionMessage"] as? String ?? e.localizedDescription)
+      }
+    }
+  }
+
+  /// A PNG of what's in view. scale 1 = CSS pixels (smaller files), 2 = Retina.
+  func screenshot(to path: String, scale outScale: Double, _ done: @escaping ([String: Any]) -> Void) {
+    let cfg = WKSnapshotConfiguration()
+    cfg.rect = web.bounds
+    web.takeSnapshot(with: cfg) { image, error in
+      guard let image = image, let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        return done(["ok": false, "error": "snapshot failed: \(String(describing: error))"])
+      }
+      let w = Int(self.web.bounds.width * outScale), h = Int(self.web.bounds.height * outScale)
+      guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8,
+                                       samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                       colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else {
+        return done(["ok": false, "error": "no bitmap"])
+      }
+      NSGraphicsContext.saveGraphicsState()
+      NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+      NSGraphicsContext.current?.imageInterpolation = .high
+      NSGraphicsContext.current?.cgContext.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+      NSGraphicsContext.restoreGraphicsState()
+      guard let png = rep.representation(using: .png, properties: [:]) else {
+        return done(["ok": false, "error": "PNG encoding failed"])
+      }
+      do {
+        try png.write(to: URL(fileURLWithPath: path))
+        done(["ok": true, "path": path, "width": w, "height": h])
+      } catch {
+        done(["ok": false, "error": "\(error)"])
+      }
+    }
   }
 
   // MARK: WebKit delegates
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
     log("loaded \(webView.url?.absoluteString ?? "") \"\(webView.title ?? "")\"")
-    drawBar(); wake(for: 1.5)
+    statusChanged()
+    wake(for: 1.5)
   }
+
+  /// A new page: forget the previous one's error and alert.
+  func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+    lastError = nil
+    lastDialog = nil
+  }
+
+  func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    lastError = error.localizedDescription
+    statusChanged()
+  }
+
+  func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    lastError = error.localizedDescription
+    statusChanged()
+  }
+  var lastError: String?
 
   /// Links that open a new window (target=_blank, window.open) load here instead.
   func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
@@ -339,4 +381,13 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
     if let url = navigationAction.request.url { webView.load(URLRequest(url: url)) }
     return nil
   }
+
+  /// JavaScript alert(): there's no dialog to show, so note it and carry on.
+  func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+               initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+    log("alert: \(message)")
+    lastDialog = message
+    completionHandler()
+  }
+  var lastDialog: String?
 }
