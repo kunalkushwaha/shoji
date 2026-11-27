@@ -4,7 +4,7 @@
 # so makepkg doesn't download it). Before this can go to the AUR, the repository must
 # be public, carry a license, and have a v$pkgver tag (then replace SKIP with the sum).
 pkgname=shoji
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="A real web browser in your terminal, drawn by WebKit (no Chrome); drivable by coding agents"
 arch=('x86_64' 'aarch64')

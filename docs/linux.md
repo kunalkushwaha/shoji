@@ -1,7 +1,8 @@
 # shoji on Linux — requirements and findings
 
-Hand-off for whoever ports shoji to Linux. Written 2026-11-27 from the macOS
-implementation (0.2.0) and research; nothing here has been built on Linux yet.
+Written 2026-11-27 as the hand-off for the Linux port, from the macOS implementation
+(0.2.0) and research. The port is done (released in 0.3.0): see the milestone and phase
+results below, and the README for installing.
 Read the [README](../README.md) and [research.md](research.md) first.
 
 ## Why Linux
@@ -335,7 +336,7 @@ frames must be `a=f` row updates.
   `--no-install-recommends`, so `Depends` alone is enough), and agent_test, more_test
   and embed_test all pass against the installed `/usr/bin/shoji` as a normal user.
   Before the PKGBUILD can go to the AUR: the repository must be public, carry a license,
-  and have a `v0.2.0` tag (then a real `sha256sums`).
+  and the PKGBUILD's version must have a tag (then a real `sha256sums`).
 
 ### Not done yet
 

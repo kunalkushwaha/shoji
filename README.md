@@ -32,12 +32,13 @@ Details and method: [docs/performance.md](docs/performance.md).
 
 ## Install
 
-Needs macOS 13+ and a terminal with the kitty graphics protocol (Ghostty, kitty, WezTerm).
+Needs macOS 13+ (or Linux: [below](#linux)) and a terminal with the kitty graphics
+protocol (Ghostty, kitty, WezTerm).
 
 From a release (one universal binary for Apple Silicon and Intel):
 
 ```sh
-gh release download --repo kunalkushwaha/shoji --pattern '*.tar.gz'
+gh release download --repo kunalkushwaha/shoji --pattern '*macos-universal.tar.gz'
 tar -xzf shoji-*-macos-universal.tar.gz
 install shoji-*/shoji ~/.local/bin/        # or anywhere on your PATH
 ```
@@ -131,8 +132,10 @@ Natively, on the two distros that ship WPE WebKit 2.54+ (`scripts/dist-linux.sh`
 all of these into `dist/`, each in Docker against that distro's own libraries):
 
 ```sh
-sudo apt install ./shoji_0.2.0-1_amd64.deb             # Debian testing/sid
-sudo pacman -U shoji-0.2.0-1-x86_64.pkg.tar.zst        # Arch (packaging/arch/PKGBUILD)
+gh release download --repo kunalkushwaha/shoji --pattern 'shoji_*_amd64.deb'      # Debian testing/sid
+sudo apt install ./shoji_*_amd64.deb
+gh release download --repo kunalkushwaha/shoji --pattern 'shoji-*-x86_64.pkg.tar.zst'   # Arch
+sudo pacman -U shoji-*-x86_64.pkg.tar.zst
 ```
 
 Plus a bare binary, `shoji-*-linux-x86_64.tar.gz` (Debian testing/sid). Ubuntu, Fedora
