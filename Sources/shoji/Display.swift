@@ -24,10 +24,16 @@ extension Display {
 /// Builds kitty graphics commands for one image: created once, then only the
 /// changed rows written into it in place (a=f,r=1,X=1). Re-sending an image id
 /// would delete its placement first, so updates never do that. Pixels go as a
-/// temp file the terminal reads and deletes (t=t), never through the stream.
+/// temp file the terminal reads and deletes (t=t) — or, when the terminal can't
+/// read our files (over SSH, from a container, a sandboxed terminal), inline in the
+/// stream (t=d), zlib-compressed where available (o=z), in 4096-byte chunks (m=1).
 final class KittyImage {
   let id: Int
   let virtual: Bool                 // unicode placeholders (U=1) instead of a cursor placement
+  /// Send pixels inline instead of as temp files.
+  var inline = false
+  /// zlib (RFC 1950) compression for inline pixels; nil sends them uncompressed.
+  var compress: ((Data) -> Data?)?
   private var placed: (w: Int, h: Int, cols: Int, rows: Int)?
   private var seq = 0
   private let pid = ProcessInfo.processInfo.processIdentifier
@@ -44,23 +50,49 @@ final class KittyImage {
     let band = full ? 0..<height : changedRows
     let stride = width * 4
     let slice = UnsafeRawBufferPointer(rebasing: rgba[(band.lowerBound * stride)..<(band.upperBound * stride)])
-    seq += 1
-    let path = "/tmp/tty-graphics-protocol-shoji-\(pid)-\(id)-\(seq % 8).rgba"
-    guard FileManager.default.createFile(atPath: path, contents: Data(slice)) else { return nil }
-    let file = Data(path.utf8).base64EncodedString()
+    // the pixels: a temp file's path, or the pixels themselves (chunked below)
+    let transfer: String, payload: String
+    if inline {
+      let raw = Data(slice)
+      if let z = compress?(raw) { transfer = "t=d,o=z"; payload = z.base64EncodedString() }
+      else { transfer = "t=d"; payload = raw.base64EncodedString() }
+    } else {
+      seq += 1
+      let path = "/tmp/tty-graphics-protocol-shoji-\(pid)-\(id)-\(seq % 8).rgba"
+      guard FileManager.default.createFile(atPath: path, contents: Data(slice)) else { return nil }
+      transfer = "t=t"
+      payload = Data(path.utf8).base64EncodedString()
+    }
     var out = "\u{1b}[?2026h"
     if full {
       if placed != nil { out += "\u{1b}_Ga=d,d=I,i=\(id),q=2\u{1b}\\" }
       if virtual {
-        out += "\u{1b}_Ga=T,U=1,i=\(id),q=2,t=t,f=32,s=\(width),v=\(height),c=\(cols),r=\(rows);\(file)\u{1b}\\"
+        out += KittyImage.apc("a=T,U=1,i=\(id),q=2,\(transfer),f=32,s=\(width),v=\(height),c=\(cols),r=\(rows)", payload)
       } else {
-        out += "\u{1b}[\(cursorRow);1H\u{1b}_Ga=T,i=\(id),p=1,q=2,t=t,f=32,s=\(width),v=\(height),c=\(cols),r=\(rows),C=1;\(file)\u{1b}\\"
+        out += "\u{1b}[\(cursorRow);1H" + KittyImage.apc("a=T,i=\(id),p=1,q=2,\(transfer),f=32,s=\(width),v=\(height),c=\(cols),r=\(rows),C=1", payload)
       }
       placed = (width, height, cols, rows)
     } else {
-      out += "\u{1b}_Ga=f,i=\(id),r=1,X=1,q=2,t=t,f=32,x=0,y=\(band.lowerBound),s=\(width),v=\(band.count);\(file)\u{1b}\\"
+      out += KittyImage.apc("a=f,i=\(id),r=1,X=1,q=2,\(transfer),f=32,x=0,y=\(band.lowerBound),s=\(width),v=\(band.count)", payload)
     }
     return out + "\u{1b}[?2026l"
+  }
+
+  /// One graphics command; a payload over 4096 bytes is split into chunks (m=1 … m=0),
+  /// later chunks carrying only m (and q).
+  static func apc(_ keys: String, _ payload: String) -> String {
+    let chunk = 4096
+    if payload.utf8.count <= chunk { return "\u{1b}_G\(keys);\(payload)\u{1b}\\" }
+    let bytes = Array(payload.utf8)
+    var out = "", i = 0
+    while i < bytes.count {
+      let end = min(i + chunk, bytes.count)
+      let more = end < bytes.count ? 1 : 0
+      let part = String(decoding: bytes[i..<end], as: UTF8.self)
+      out += i == 0 ? "\u{1b}_G\(keys),m=1;\(part)\u{1b}\\" : "\u{1b}_Gm=\(more),q=2;\(part)\u{1b}\\"
+      i = end
+    }
+    return out
   }
 
   func deleteCommand() -> String { "\u{1b}_Ga=d,d=I,i=\(id),q=2\u{1b}\\" }

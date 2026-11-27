@@ -11,7 +11,7 @@ let package = Package(
   targets: [
     .systemLibrary(name: "CWPE", path: "Sources/CWPE", pkgConfig: "wpe-webkit-2.0"),
     .target(name: "CShojiWPE", dependencies: [.target(name: "CWPE", condition: linux)], path: "Sources/CShojiWPE",
-            linkerSettings: [.linkedLibrary("png16", .when(platforms: [.linux]))]),
+            linkerSettings: [.linkedLibrary("png16", .when(platforms: [.linux])), .linkedLibrary("z", .when(platforms: [.linux]))]),
     .executableTarget(
       name: "shoji",
       dependencies: [.target(name: "CShojiWPE", condition: linux)],

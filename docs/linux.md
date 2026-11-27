@@ -273,17 +273,38 @@ the `Loop` abstraction proposed above wasn't needed (`spikes/linux/loopcheck`).
 7. **Swift**: `--static-swift-stdlib` makes the binary independent of a Swift install
    (58 MB, most of it Foundation's ICU data).
 
-### Not done yet (phase 2 and loose ends)
+## Phase 2: terminal mode (2026-11-27)
 
-- **Build and run both test suites on a Mac** before merging `linux` (the shared files changed
-  only behind `#if`, but they haven't been compiled for macOS).
-- Terminal mode and `--embed` on Linux: they compile, and the frame loop uses
-  `webkit_web_view_get_snapshot` like macOS's `takeSnapshot`; untested in a real terminal.
-  Inline frames over SSH (requirement 9) not started.
+`shoji <url>` on Linux, tested against a fake kitty terminal in a pty
+(`tests/terminal_test.py`, 35 checks, 6 scenarios): the terminal's picture is compared
+with `ctl screenshot` of the same page, clicks go through SGR pixel mouse reports, later
+frames must be `a=f` row updates.
+
+- **Inline frames (requirement 9), shared code:** at start `TerminalDisplay.probe()` asks
+  the terminal to load a 1x1 image from a temp file (`a=q,t=t`). `OK` → temp files as
+  before; an error (SSH, shoji in a container, a sandboxed terminal) → `t=d` inline, in
+  4096-byte chunks (`m=1`), zlib-compressed on Linux (`o=z`; macOS sends uncompressed for
+  now). No reply in 1 s → temp files. `SHOJI_FRAMES=inline|file` overrides. The input
+  parser now passes kitty replies on (`InputEvent.reply`) instead of dropping them.
+  On the test page, 10–12 MB of pixels went as 0.1 MB.
+- **`docker run -t` gives the tty rows and columns but no pixel size** (0x0). On Linux,
+  shoji then asks the terminal (`CSI 14 t` → `CSI 4;h;w t`) at start and after each resize.
+- **HiDPI:** `SHOJI_SCALE` (terminal mode only) is applied as WebKit page zoom; the view
+  stays in device pixels, the page lays out in CSS pixels (1200 px at 1.25 → 960), and
+  the engine scales mouse positions and scroll deltas (both are device pixels in WPE).
+  Linux has no reliable way to read the screen's scale from inside a terminal.
+
+### Not done yet
+
+- **Build and run the test suites on a Mac** before merging `linux` (shared files changed:
+  `#if` guards, plus the inline transport, the reply event and the probe in `Display.swift`,
+  `Input.swift`, `Terminal.swift`, `main.swift` — Foundation only, but not compiled for macOS).
+- A real terminal on Linux: try `docker run --rm -it shoji <url>` in Ghostty/kitty.
+- `--embed` (Neovim) on Linux, and inline frames for it (its frames go through Neovim).
+- zlib for inline frames on macOS (`Compression` gives raw deflate; needs the zlib wrapper).
 - WebKit's sandbox on a plain Linux host (Ubuntu 24.04 restricts unprivileged user namespaces).
-- `arm64` image (Debian testing has WPE 2.54 for arm64; untested).
-- Debug-log lines for messages from iframes don't carry the frame's address yet (WPE's
-  script-message signal has no frame info).
+- `arm64` image.
+- Messages from iframes don't carry the frame's address in the log yet.
 
 ## Test plan
 

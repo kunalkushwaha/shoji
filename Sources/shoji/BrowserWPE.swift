@@ -33,7 +33,11 @@ final class WebView {
   var isLoading: Bool { shoji_engine_is_loading(engine) != 0 }
   var canGoBack: Bool { shoji_engine_can_go_back(engine) != 0 }
   var canGoForward: Bool { shoji_engine_can_go_forward(engine) != 0 }
-  var bounds: Bounds { Bounds(width: Double(shoji_engine_width(engine)), height: Double(shoji_engine_height(engine))) }
+  var scale = 1.0
+  /// In CSS pixels.
+  var bounds: Bounds {
+    Bounds(width: Double(shoji_engine_width(engine)) / scale, height: Double(shoji_engine_height(engine)) / scale)
+  }
   func goBack() { shoji_engine_go_back(engine) }
   func goForward() { shoji_engine_go_forward(engine) }
   func reload() { shoji_engine_reload(engine) }
@@ -57,12 +61,24 @@ func compileOfflineRules(_ done: @escaping (OfflineRules?) -> Void) {
   }, retained(done))
 }
 
+/// zlib (RFC 1950) for inline terminal frames.
+func zlibCompress(_ d: Data) -> Data? {
+  var out: UnsafeMutablePointer<UInt8>?
+  var n = 0
+  let ok = d.withUnsafeBytes { shoji_zlib($0.baseAddress?.assumingMemoryBound(to: UInt8.self), $0.count, &out, &n) }
+  guard ok == 0, let p = out else { return nil }
+  defer { free(p) }
+  return Data(bytes: p, count: n)
+}
+
 let userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
 
 final class Browser {
   let display: Display
   let offline: Bool
-  /// Device pixels per CSS pixel. Headless WPE draws at 1.
+  /// Device pixels per CSS pixel: 1 headless; in a terminal, SHOJI_SCALE (e.g. 1.25 or 2
+  /// on a HiDPI screen — the terminal reports device pixels, and Linux has no reliable way
+  /// to ask for the screen's scale from inside a terminal). Applied as WebKit page zoom.
   let scale: Double
   let web = WebView()
   var onStatus: (() -> Void)?
@@ -84,8 +100,9 @@ final class Browser {
   init(display: Display, offline: Bool, rules: OfflineRules?) {
     self.display = display
     self.offline = offline
-    scale = 1
-    let size = Browser.pointSize(display.pagePixels, scale: scale)
+    let envScale = ProcessInfo.processInfo.environment["SHOJI_SCALE"].flatMap(Double.init) ?? 1
+    scale = display.wantsFrames ? min(4, max(0.5, envScale)) : 1
+    let size = display.pagePixels                      // the view, in device pixels
     let me = Unmanaged.passUnretained(self).toOpaque()
     let callbacks = ShojiCallbacks(
       ctx: me,
@@ -116,6 +133,8 @@ final class Browser {
     cNames.forEach { free(UnsafeMutablePointer(mutating: $0)) }
     guard let engine = engine else { fail("shoji: WPE WebKit couldn't start (see the message above)") }
     web.engine = engine
+    web.scale = scale
+    if scale != 1 { shoji_engine_set_scale(engine, scale) }
     if display.wantsFrames {
       let t = DispatchSource.makeTimerSource(queue: .main)
       t.schedule(deadline: .now(), repeating: 1.0 / 30)
@@ -123,15 +142,11 @@ final class Browser {
       t.resume()
       frameTimer = t
     }
-    log("page \(size.width)x\(size.height) css px, scale \(scale)")
+    log("page \(size.width)x\(size.height) device px, scale \(scale)")
   }
 
   private static func from(_ ctx: UnsafeMutableRawPointer?) -> Browser {
     Unmanaged<Browser>.fromOpaque(ctx!).takeUnretainedValue()
-  }
-
-  static func pointSize(_ px: (width: Int, height: Int), scale: Double) -> (width: Int, height: Int) {
-    (max(100, Int(Double(px.width) / scale)), max(100, Int(Double(px.height) / scale)))
   }
 
   private func statusChanged() {
@@ -157,7 +172,7 @@ final class Browser {
 
   /// The display's page area changed size (in device pixels).
   func resized() {
-    let size = Browser.pointSize(display.pagePixels, scale: scale)
+    let size = display.pagePixels
     shoji_engine_resize(web.engine, Int32(size.width), Int32(size.height))
     display.resetFrame()
     lastFrame = []

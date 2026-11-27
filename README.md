@@ -7,8 +7,8 @@ outside show through it. Here, web pages show through your terminal.
 
 ![shoji in Ghostty showing Wikipedia's "Shoji" article: the top bar with back, forward and reload and the address, and the live page below it](docs/screenshot.png)
 
-For terminals that speak the kitty graphics protocol: Ghostty, kitty, WezTerm. macOS; on Linux,
-the headless mode for agents (`shoji ctl`) runs on WPE WebKit — see [Linux](#linux).
+For terminals that speak the kitty graphics protocol: Ghostty, kitty, WezTerm. macOS, and
+Linux on WPE WebKit (agents' headless mode and the terminal) — see [Linux](#linux).
 
 ```sh
 shoji https://example.com
@@ -129,11 +129,21 @@ testing/sid or Arch, with `libwpewebkit-2.0-1 libgles2 shared-mime-info` (Arch: 
 Outside a container, keep WebKit's sandbox on; inside one, the image sets
 `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1` (the container is the sandbox).
 
-Terminal mode and `--embed` build on Linux but aren't tested there yet. Numbers next to
+In a terminal, from the image (Ghostty, kitty or WezTerm; Ctrl+Q quits):
+
+```sh
+docker run --rm -it shoji https://en.wikipedia.org/wiki/Shoji
+docker run --rm -it -e SHOJI_SCALE=2 shoji …    # HiDPI screen: its scale (1.25, 1.5, 2)
+```
+
+The terminal can't read files inside the container, so frames go inline through the
+terminal stream (zlib-compressed); the same happens over SSH. shoji finds out at start by
+asking the terminal; `SHOJI_FRAMES=inline|file` decides instead. `--embed` builds on Linux
+but isn't tested there yet. Numbers next to
 headless Chromium: [docs/performance.md](docs/performance.md#linux); how it's built:
 [docs/linux.md](docs/linux.md).
 
 ## Status
 
 Early prototype. Not yet: right-click menus, tabs, downloads, WebGL/video capture,
-hover inside Neovim, tmux, terminal mode on Linux.
+hover inside Neovim, tmux, `--embed` on Linux, inline frames for `--embed` over SSH.

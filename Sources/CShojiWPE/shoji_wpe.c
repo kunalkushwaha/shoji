@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <zlib.h>
 
 struct ShojiEngine {
   WebKitWebView *web;
@@ -17,6 +18,7 @@ struct ShojiEngine {
   WPEDisplay *display;
   ShojiCallbacks cb;
   int width, height;
+  double scale;
   guint32 last_time;
 };
 
@@ -126,6 +128,7 @@ ShojiEngine *shoji_engine_new(int width, int height, ShojiFilter *filter, const 
   GError *err = NULL;
   ShojiEngine *e = g_new0(ShojiEngine, 1);
   e->cb = callbacks;
+  e->scale = 1;
   e->display = wpe_display_headless_new();
   if (!wpe_display_connect(e->display, &err)) {
     g_printerr("shoji: headless display: %s\n", err->message);
@@ -201,6 +204,11 @@ void shoji_engine_resize(ShojiEngine *e, int width, int height) {
   else wpe_view_resized(e->view, e->width, e->height);
 }
 
+void shoji_engine_set_scale(ShojiEngine *e, double scale) {
+  e->scale = scale > 0 ? scale : 1;
+  webkit_web_view_set_zoom_level(e->web, e->scale);
+}
+
 // ---- JavaScript ----
 
 typedef struct { ShojiEngine *e; shoji_result_cb cb; void *ctx; } EvalReq;
@@ -234,6 +242,7 @@ static void send(ShojiEngine *e, WPEEvent *ev) {
 
 void shoji_engine_mouse(ShojiEngine *e, int kind, double x, double y, int press_count, int held) {
   guint32 t = event_time(e);
+  x *= e->scale; y *= e->scale;
   WPEModifiers held_mod = held ? WPE_MODIFIER_POINTER_BUTTON1 : 0;
   switch (kind) {
   case 0:
@@ -252,8 +261,10 @@ void shoji_engine_mouse(ShojiEngine *e, int kind, double x, double y, int press_
 
 void shoji_engine_scroll(ShojiEngine *e, double dx, double dy, double x, double y) {
   guint32 t = event_time(e);
+  x *= e->scale; y *= e->scale;
+  dx *= e->scale; dy *= e->scale;      // deltas are in view (device) pixels, like the position
   send(e, wpe_event_pointer_move_new(WPE_EVENT_POINTER_MOVE, e->view, WPE_INPUT_SOURCE_MOUSE, t, 0, x, y, 0, 0));
-  // Measured on WPE 2.54 (headless): a precise scroll event moves the page 2.5 CSS px per
+  // Measured on WPE 2.54 (headless): a precise scroll event moves the page 2.5 device px per
   // unit of delta, opposite in sign (negative = down). No "scroll stop" event after it:
   // WPE treats that as the end of a swipe and adds momentum, flinging the page.
   const double px_per_unit = 2.5;
@@ -385,6 +396,15 @@ void shoji_loop_run(void) {
 }
 
 void shoji_loop_quit(void) { if (main_loop) g_main_loop_quit(main_loop); }
+
+int shoji_zlib(const uint8_t *src, size_t n, uint8_t **out, size_t *out_n) {
+  uLongf len = compressBound(n);
+  *out = malloc(len);
+  if (!*out) return -1;
+  if (compress2(*out, &len, src, n, 1) != Z_OK) { free(*out); *out = NULL; return -1; }
+  *out_n = len;
+  return 0;
+}
 
 int shoji_winsize(int fd, int *rows, int *cols, int *xpixel, int *ypixel) {
   struct winsize ws;

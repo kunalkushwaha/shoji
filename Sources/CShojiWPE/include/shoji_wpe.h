@@ -3,6 +3,7 @@
 // stay in shoji_wpe.c. Everything runs on the main thread, in GLib's main loop.
 #pragma once
 #ifdef __linux__
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct ShojiEngine ShojiEngine;
@@ -49,14 +50,17 @@ int shoji_engine_can_go_back(ShojiEngine *e);
 int shoji_engine_can_go_forward(ShojiEngine *e);
 int shoji_engine_width(ShojiEngine *e);
 int shoji_engine_height(ShojiEngine *e);
+/// The view's size in device pixels.
 void shoji_engine_resize(ShojiEngine *e, int width, int height);
+/// Device pixels per CSS pixel (page zoom). Input coordinates stay in CSS pixels.
+void shoji_engine_set_scale(ShojiEngine *e, double scale);
 
 /// Run an async function body (awaits promises). world NULL = the page's own.
 /// The result comes back as JSON (NULL for undefined), or an error message.
 typedef void (*shoji_result_cb)(void *ctx, const char *json, const char *error);
 void shoji_engine_eval(ShojiEngine *e, const char *body, const char *world, shoji_result_cb cb, void *ctx);
 
-/// Input. Coordinates are CSS pixels from the view's top-left.
+/// Input. Coordinates are CSS pixels from the view's top-left (scaled to the view here).
 /// kind: 0 press, 1 release, 2 move (button 1 held: drag)
 void shoji_engine_mouse(ShojiEngine *e, int kind, double x, double y, int press_count, int button_held);
 /// Scroll by CSS pixels (positive = down) at x, y.
@@ -76,6 +80,9 @@ int shoji_write_png(const char *path, const uint8_t *bgra, int width, int height
 /// asyncAfter and DispatchSources on .main work unchanged).
 void shoji_loop_run(void);
 void shoji_loop_quit(void);
+
+/// zlib-compress (level 1) into a malloc'd buffer. Returns 0 on success.
+int shoji_zlib(const uint8_t *src, size_t n, uint8_t **out, size_t *out_n);
 
 /// Terminal size (ioctl is variadic, so Swift can't call it directly).
 int shoji_winsize(int fd, int *rows, int *cols, int *xpixel, int *ypixel);

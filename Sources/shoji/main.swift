@@ -186,6 +186,7 @@ if flag("--headless") {
   let exitAfter = option("--exit-after").flatMap(Double.init)
   compileOfflineRules { rules in
     term.enter()
+    display.probe()
     let b = Browser(display: display, offline: offline, rules: rules)
     display.browser = b
     let c = Controller(browser: b)

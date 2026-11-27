@@ -18,7 +18,9 @@ struct Mouse {
   let shift: Bool, alt: Bool, ctrl: Bool
 }
 
-enum InputEvent { case key(Key), mouse(Mouse) }
+/// reply: a kitty graphics reply from the terminal (what follows "\u{1b}_G", e.g. "i=31;OK").
+/// textAreaPixels: the answer to CSI 14 t (the text area's size in pixels).
+enum InputEvent { case key(Key), mouse(Mouse), reply(String), textAreaPixels(width: Int, height: Int) }
 
 struct InputParser {
   private var pending: [UInt8] = []
@@ -48,6 +50,10 @@ struct InputParser {
             j += 1
           }
           guard let e = end else { break }   // incomplete: wait for the rest
+          if kind == UInt8(ascii: "_"), i + 2 < pending.count, pending[i + 2] == UInt8(ascii: "G") {
+            let bodyEnd = pending[e - 1] == 0x07 ? e - 1 : e - 2
+            out.append(.reply(String(decoding: pending[(i + 3)..<max(i + 3, bodyEnd)], as: UTF8.self)))
+          }
           i = e
           continue
         }
@@ -106,6 +112,11 @@ struct InputParser {
       else if cb & 32 != 0 { kind = .motion }
       else { kind = final == UInt8(ascii: "M") ? .press : .release }
       return (.mouse(Mouse(kind: kind, button: cb & 3, x: x, y: y, shift: mods.shift, alt: mods.alt, ctrl: mods.ctrl)), len)
+    }
+    if final == UInt8(ascii: "t"), params.hasPrefix("4;") {
+      let nums = params.split(separator: ";").compactMap { Int($0) }
+      if nums.count == 3 { return (.textAreaPixels(width: nums[2], height: nums[1]), len) }
+      return (nil, len)
     }
     switch final {
     case UInt8(ascii: "A"): return (.key(.up), len)

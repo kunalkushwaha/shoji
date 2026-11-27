@@ -20,12 +20,20 @@ final class Terminal {
     refreshSize()
   }
 
+  /// The text area's pixels as the terminal reported them (CSI 14 t), for when the
+  /// tty doesn't know them: `docker run -t` passes rows and columns but no pixels.
+  var reportedPixels: (width: Int, height: Int)?
+  /// The tty gave no pixel size: ask the terminal (after every resize).
+  private(set) var needsPixelQuery = false
+
   func refreshSize() {
     #if os(Linux)
     var r: Int32 = 0, c: Int32 = 0, xp: Int32 = 0, yp: Int32 = 0
     if shoji_winsize(fd, &r, &c, &xp, &yp) == 0 {
       rows = Int(r); cols = Int(c); pixelWidth = Int(xp); pixelHeight = Int(yp)
     }
+    needsPixelQuery = pixelWidth == 0 || pixelHeight == 0
+    if needsPixelQuery, let p = reportedPixels { pixelWidth = p.width; pixelHeight = p.height }
     #else
     var ws = winsize()
     if ioctl(fd, TIOCGWINSZ, &ws) == 0 {
@@ -98,13 +106,55 @@ final class TerminalDisplay: Display {
   private var typed = ""
   private var lastStatus = (title: "", url: "", loading: false)
 
-  init(term: Terminal) { self.term = term }
+  init(term: Terminal) {
+    self.term = term
+    #if os(Linux)
+    image.compress = zlibCompress
+    #endif
+  }
 
   var pagePixels: (width: Int, height: Int) {
     (Int(Double(term.cols) * term.cellWidth), Int(Double(term.rows - 1) * term.cellHeight))
   }
   var wantsFrames: Bool { true }
-  var ready: Bool { true }
+  /// Frames wait until we know how to send them (see probe()).
+  var ready: Bool { transportKnown }
+  private var transportKnown = false
+  private let probePath = "/tmp/tty-graphics-protocol-shoji-\(getpid())-probe.rgb"
+
+  /// Can the terminal read our temp files? Ask it to load a 1x1 image from one (a=q:
+  /// nothing is shown). "OK" → temp files; an error (over SSH, shoji in a container,
+  /// a sandboxed terminal) → pixels inline in the stream. No answer within a second →
+  /// temp files, as before. SHOJI_FRAMES=inline|file decides instead.
+  func probe() {
+    #if os(Linux)
+    if term.needsPixelQuery { term.write("\u{1b}[14t") }
+    #endif
+    if let forced = ProcessInfo.processInfo.environment["SHOJI_FRAMES"] {
+      image.inline = forced == "inline"
+      transportKnown = true
+      log("frames: \(image.inline ? "inline" : "temp files") (SHOJI_FRAMES)")
+      return
+    }
+    guard FileManager.default.createFile(atPath: probePath, contents: Data([0, 0, 0])) else {
+      image.inline = true
+      transportKnown = true
+      return
+    }
+    term.write("\u{1b}_Ga=q,i=31,s=1,v=1,t=t,f=24;\(Data(probePath.utf8).base64EncodedString())\u{1b}\\")
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+      guard let self = self, !self.transportKnown else { return }
+      self.transportDecided(inline: false, why: "no reply")
+    }
+  }
+
+  private func transportDecided(inline: Bool, why: String) {
+    image.inline = inline
+    transportKnown = true
+    unlink(probePath)
+    log("frames: \(inline ? "inline" : "temp files") (\(why))")
+    browser?.wake()
+  }
 
   func showFrame(rgba: UnsafeRawBufferPointer, width: Int, height: Int, changedRows: Range<Int>) -> Bool {
     var full = false
@@ -137,6 +187,9 @@ final class TerminalDisplay: Display {
 
   func resized() {
     term.refreshSize()
+    #if os(Linux)
+    if term.needsPixelQuery { term.write("\u{1b}[14t") }   // the answer comes back through handle()
+    #endif
     term.write("\u{1b}[2J")
     browser?.resized()
     drawBar()
@@ -150,11 +203,23 @@ final class TerminalDisplay: Display {
   // MARK: terminal input
 
   func handle(_ ev: InputEvent) {
+    if case .textAreaPixels(let w, let h) = ev {
+      log("terminal reports \(w)x\(h) px")
+      let changed = term.reportedPixels.map { $0 != (w, h) } ?? true
+      term.reportedPixels = (w, h)
+      if changed { resized() }
+      return
+    }
+    if case .reply(let r) = ev {
+      if r.hasPrefix("i=31;"), !transportKnown { transportDecided(inline: !r.hasSuffix(";OK"), why: "terminal: \(r)") }
+      return
+    }
     guard let b = browser else { return }
     log("input \(ev)")
     switch ev {
     case .key(let k): key(k, b)
     case .mouse(let m): mouse(m, b)
+    case .reply, .textAreaPixels: break
     }
   }
 
