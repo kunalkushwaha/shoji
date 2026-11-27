@@ -216,6 +216,7 @@ final class Browser: NSObject, WKNavigationDelegate, WKUIDelegate {
   }
 
   private func key(_ k: Key) {
+    if case .ctrl("q") = k { quit() }   // always quits, even while typing an address
     if editing {
       switch k {
       case .text(let s): typed += s
