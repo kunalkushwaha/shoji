@@ -1,5 +1,5 @@
 """shoji --embed, the Neovim mode, without Neovim: this test plays Neovim's side of the
-JSON-lines protocol (as the dotfiles' nvim/init.lua does) and decodes the kitty graphics
+JSON-lines protocol (docs/neovim.md) and decodes the kitty graphics
 commands that Neovim would hand to the terminal through nvim_ui_send.
 Run: python3 -I tests/embed_test.py [shoji]"""
 import base64, functools, http.server, json, os, queue, shutil, subprocess, sys, threading, time, zlib
@@ -11,7 +11,7 @@ http.server.SimpleHTTPRequestHandler.log_message = lambda *a: None
 srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
 threading.Thread(target=srv.serve_forever, daemon=True).start()
 BASE = "http://127.0.0.1:%d/" % srv.server_address[1]
-IMAGE_ID = 0xEE1234                     # like init.lua: the id is also the placeholder colour
+IMAGE_ID = 0xEE1234                     # the image id is also the placeholder colour
 COLS, ROWS, CW, CH = 120, 39, 10, 20    # Neovim window in cells, cell size in pixels
 
 failures = 0
@@ -22,7 +22,7 @@ def check(label, cond, detail=""):
 
 
 class FakeNeovim:
-    """Starts `shoji --embed` as init.lua's jobstart does and keeps what it says."""
+    """Starts `shoji --embed` as a Neovim plugin would (jobstart) and keeps what it says."""
 
     def __init__(self, name, extra_env=None):
         self.name = name

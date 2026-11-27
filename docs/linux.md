@@ -45,7 +45,7 @@ over SSH from a desktop) and come second.
    Detect locality (an `a=q` query with `t=t` fails remotely) and fall back. macOS needs
    this too — implement it in the shared code.
 10. `--embed` for Neovim (unicode placeholders, JSON lines on stdin/stdout) unchanged;
-    the dotfiles' Lua side needs no changes.
+    the Neovim side (Lua, see [neovim.md](neovim.md)) needs no changes.
 
 ### Not required
 
@@ -303,7 +303,7 @@ frames must be `a=f` row updates.
   pixel-size query and zlib inline frames), now shared — fixed in 86ca865.
 
 - **`--embed` (Neovim):** `tests/embed_test.py` plays Neovim's side of the JSON-lines
-  protocol (as `nvim/init.lua` in the dotfiles does) and decodes the graphics commands
+  protocol (see [neovim.md](neovim.md)) and decodes the graphics commands
   Neovim would pass on: ready/resize, unicode-placeholder placement over the window's
   cells, status and focus events, col/row clicks, typing (incl. Japanese), changed-row
   updates, scrolling, the wheel, `shoji ctl --name` on the embedded page, and the image

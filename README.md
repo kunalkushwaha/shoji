@@ -98,9 +98,10 @@ or `shoji ctl sound on`. `--json` prints raw replies. Tested by `tests/agent_tes
 
 `shoji --embed` draws a live page in a Neovim window through unicode placeholders
 (the window's buffer holds the placeholder grid; frames reach the terminal through
-`nvim_ui_send`). The Neovim side lives in the dotfiles (`Space m w` / `:Shoji`). An
-embedded page also answers `shoji ctl --name <buffer's b:shoji>`, so an agent can
-read and drive the very page you're looking at.
+`nvim_ui_send`). The Neovim side is a small Lua plugin that isn't published yet; the
+protocol it speaks (JSON lines on stdin/stdout) is in [docs/neovim.md](docs/neovim.md),
+so you can write your own. An embedded page also answers `shoji ctl --name <name>`, so
+an agent can read and drive the very page you're looking at.
 
 **Private:** nothing is stored between runs. **`--offline`:** every request that isn't a
 local file is blocked by WebKit itself, so local reports and prototypes can't phone home.
