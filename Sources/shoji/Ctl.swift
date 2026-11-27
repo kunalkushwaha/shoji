@@ -160,7 +160,10 @@ func runControlClient(_ args: [String]) -> Never {
     if let y = reply["scrollY"], let h = reply["pageHeight"] { print("scroll \(y) of \(h)") }
     if let e = reply["error"] as? String { print("error: \(e)") }
     if let al = reply["lastAlert"] as? String { print("alert: \(al)") }
+    if cmd == "status", let m = reply["muted"] as? Bool { print(m ? "sound off (muted)" : "sound on") }
     if reply["title"] == nil && reply["url"] == nil { print("ok") }
+  case "sound":
+    print((reply["muted"] as? Bool ?? true) ? "sound off (muted)" : "sound on")
   default: print("ok")
   }
   exit(0)

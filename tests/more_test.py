@@ -158,7 +158,7 @@ try:
 
     # sound: headless starts muted
     r = ctl("status", raw=True)
-    check("headless starts muted", r.get("muted") is True, r)
+    check("headless starts muted", r.get("muted") is True and "sound off" in ctl("status"), r)
     r = ctl("sound", "on", raw=True)
     check("sound on", r.get("muted") is False and ctl("status", raw=True).get("muted") is False, r)
     r = ctl("sound", "off", raw=True)
